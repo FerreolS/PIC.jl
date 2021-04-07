@@ -1,3 +1,4 @@
+module SphereIFSCalib
 
 using Zygote
 using TwoDimensional
@@ -48,19 +49,20 @@ function (self::DispModel)(λ::Float64)
 end
 
 """
-    D = update(D,C)
+    D = UpdateDispModel(D,C)
     Update the coefficients C of the DispModel D.
 """
-function update(self::DispModel, C::Array{Float64,2})
+function UpdateDispModel(self::DispModel, C::Array{Float64,2})
     self.cx = C[1,:];
     self.cy = C[2,:];
     return self
 end
 
 """
-     GaussianModel(A,fwhm,x,y)    
-    Compute the value  at position (x,y) of a 2D Gaussian of full-width at half xmaximum 
-    Update the coefficients C of the DispModel D.
+    GaussianModel(A,fwhm,x,y)
+    Compute the value  at position (x,y) of a 2D centered Gaussian 
+    * fwhm is full-width at half maximum 
+    * A is the amplitude at (x,y) = (0,0)
 """
 function GaussianModel(A::Float64, fwhm::Float64, x::Float64, y::Float64)
     local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
@@ -68,23 +70,29 @@ function GaussianModel(A::Float64, fwhm::Float64, x::Float64, y::Float64)
 end
 
 """
-     GaussianModel(A,fwhm,x,y)    
-    Compute the value of a 2D Gaussian of full-width at half xmaximum 
-    Update the coefficients C of the DispModel D.
+     GaussianModel(A,fwhm,r)
+     Compute the value at position r 1D centered Gaussian 
+     * fwhm is full-width at half maximum 
+     * A is the amplitude at r = 0
 """
-function GaussianModel(A::Float64, fwhm::Float64, x::Array{Float64,2}, y::Array{Float64,2})
+function GaussianModel(A::Float64, fwhm::Float64, x::AbstractArray)
     local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
-    return A .* exp.(.-(x.^2 + y.^2) ./ (2 * (fwhm * fwhm2sigma )^2));
+    return A .* exp.(.-(x.^2) ./ (2 * (fwhm * fwhm2sigma )^2));
 end
 
 """
     GaussianSpotsCost(data,weight,lmodel, A,fwhm,C)    
-    Compute a quadratic cost for the lenslet modelized by lmodel with parameters A fwhm and C
+    Compute a weighted quadratic cost of a lenslet model :
+    cost = weight .* || data - model ||^2 
+    * lmodel is the model of the lenslet
+    * A is a 1D array containing the amplitude  of all Gaussian spots
+    * fwhm is an 1D array containing the fwhm  of all Gaussian spots
+    * C are the chromatic law coefficients.
 """
 function GaussianSpotsCost(data::Array{Float64,2}, weight::Array{Float64,2}, lmodel::LensletModel, A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
-    update(lmodel.dmodel, C);
+    UpdateDispModel(lmodel.dmodel, C);
     s = 0.;
-    for I in CartesianIndices(bbox)
+    for I in CartesianIndices(lmodel.bbox)
         spotsmodel = 0;
         for (index, λ) in enumerate(lmodel.λlaser) 
             (mx, my)  = lmodel.dmodel(λ);
@@ -98,10 +106,15 @@ end
 
 """
     GaussianSpotsModel(model,lmodel, A,fwhm,C)    
-    Build the model of the lenslet modelized by lmodel with parameters A fwhm and c
+    Build the model of a lenslet 
+    * lmodel is the model of the lenslet
+    * A is a 1D array containing the amplitude  of all Gaussian spots
+    * fwhm is an 1D array containing the fwhm  of all Gaussian spots
+    * C are the chromatic law coefficients.
 """
-function GaussianSpotsModel(model::Array{Float64,2}, lmodel::LensletModel, A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
-    update(lmodel.dmodel, C);
+function GaussianSpotsModel(lmodel::LensletModel, A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
+    UpdateDispModel(lmodel.dmodel, C);
+    model = zeros(Float64,round(bbox).xmax-round(bbox).xmin+1,round(bbox).ymax-round(bbox).ymin+1);
     t = Zygote.Buffer(model);
     t[:] = model[:];
     for I in CartesianIndices(bbox)
@@ -111,7 +124,9 @@ function GaussianSpotsModel(model::Array{Float64,2}, lmodel::LensletModel, A::Ar
             t[I[1],I[2]] += GaussianModel(A[index], fwhm[index], I[1] - mx, I[2] - my)  
         end
     end
-    return Zygote.copy(t);
+    model =  Zygote.copy(t);
+end
+
 end
 
 
