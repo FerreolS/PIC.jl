@@ -1,4 +1,4 @@
-module SphereIFSCalib
+#module SphereIFSCalib
 
 using Zygote
 using TwoDimensional
@@ -81,6 +81,17 @@ function GaussianModel(A::Float64, fwhm::Float64, x::AbstractArray)
 end
 
 """
+     GaussianModel2(A,fwhm,r)
+     Compute the value at position sqrt(r) 1D centered Gaussian 
+     * fwhm is full-width at half maximum 
+     * A is the amplitude at r = 0
+"""
+function GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
+    local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
+    return A .* exp.(-x ./ (2 * (fwhm * fwhm2sigma )^2));
+end
+
+"""
     GaussianSpotsCost(data,weight,lmodel, A,fwhm,C)    
     Compute a weighted quadratic cost of a lenslet model :
     cost = weight .* || data - model ||^2 
@@ -127,6 +138,24 @@ function GaussianSpotsModel(lmodel::LensletModel, A::Array{Float64,1}, fwhm::Arr
     model =  Zygote.copy(t);
 end
 
-end
 
+"""
+LensletLaserImage(model,lmodel, A,fwhm,C)    
+    Build the image of a lenslet under laser illumination
+    * lmodel is the model of the lenslet
+    * A is a 1D array containing the amplitude  of all Gaussian spots
+    * fwhm is an 1D array containing the fwhm  of all Gaussian spots
+"""
+function LensletLaserImage(lmodel::LensletModel,A::Array{Float64,1}, fwhm::Array{Float64,1})
+    bbox = lmodel.bbox;
+    (rx,ry) = axes(bbox) # extracting bounding box range
+    spotsmodel =   zeros(Float64,round(bbox).xmax-round(bbox).xmin+1,round(bbox).ymax-round(bbox).ymin+1);
+    for (index, λ) in enumerate(lmodel.λlaser)  # For all laser
+        (mx, my)  = lmodel.dmodel(λ);  # center of the index-th Gaussian spot 
+        r = ((rx.-mx).^2) .+ ((ry.-my).^2)';  
+        spotsmodel = spotsmodel .+ GaussianModel2(A[index], fwhm[index], r)  
+    end   
+    return spotsmodel; 
+end
+#end
 
