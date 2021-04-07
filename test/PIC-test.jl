@@ -1,5 +1,5 @@
 include("../src/SphereIFSCalib.jl")
-
+using .SphereIFSCalib: LensletModel,GaussianSpotsCost,GaussianSpotsModel
 using TwoDimensional, Zygote
 
 # wavelengths
@@ -26,3 +26,8 @@ likelihood(a,fwhm,C) = GaussianSpotsCost(data,weight,lmod,a,fwhm,C)
 cost = likelihood(a0,fwhm0,Cinit)
 
 ∇cost = gradient(likelihood,a0,fwhm0,Cinit)
+
+m = rand(100,100);
+function  g(a::Array{Float64,1},fwhm::Array{Float64,1},C::Array{Float64,2}) 
+    return sum(GaussianSpotsModel(lmod,a,fwhm,C))
+end
