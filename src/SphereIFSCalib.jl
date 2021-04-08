@@ -5,11 +5,13 @@ using TwoDimensional
 
 
 """
-    The dispersion model. It like the position of a wavelength on the detector
-    * λ0 is the reference wavelength
-    * order is the order of the polynomials
-    * cx is an array of coefficients of the polynomial along the x axis
-    * cy is an array of coefficients of the polynomial along the y axis
+    DispModel(λ0::Float64,order::Int32,cx::Array{Float64,1},cy::Array{Float64,1})    
+
+The dispersion model giving the position of a wavelength on the detector
+* `λ0` is the reference wavelength
+* `order` is the order of the polynomials
+* `cx` is an array of coefficients of the polynomial along the x axis
+* `cy` is an array of coefficients of the polynomial along the y axis
 """
 mutable struct DispModel
     λ0::Float64   # reference wavelength
@@ -19,9 +21,16 @@ mutable struct DispModel
 end
 
 """
-    (x,y) = (self::DispModel)(λ) 
-    compute the position (x,y)  of the wavelent λ 
-    according to the dispersion law DispModel.
+    (self::DispModel)(λ::Float64)
+    
+compute the position `(x,y)`  of the wavelent `λ` 
+according to the dispersion law `DispModel`.
+
+### Example
+```
+D = DispModel(λ0, order, cx, cy);
+(x,y) = D(λ)
+```
 """
 function (self::DispModel)(λ::Float64)
     x = self.cx[1];
@@ -34,22 +43,28 @@ function (self::DispModel)(λ::Float64)
 end
 
 """
-    D = UpdateDispModel(D,C)
-    Update the coefficients C of the DispModel D.
+    UpdateDispModel(self::DispModel, C::Array{Float64,2})
+    
+Update the coefficients  of the DispModel .
+* `self`: DispModel object
+* `C` : array containing the polynomial coefficients.
 """
 function UpdateDispModel(self::DispModel, C::Array{Float64,2})
+    @assert size(C)==(2,self.order+1) "coefficients array does not have the right size"
     self.cx = C[1,:];
     self.cy = C[2,:];
     return self
 end
 
 """
+    LaserModel(nλ::Integer,λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::Array{Float64,1})
+
 Model of the laser illumination.
 It consist on:
-* nλ the number of laser
-* λlaser an array of the wavelengths of the lasers
-* amplitude an array of the amplitude of the maximum of the Gaussian spot
-* fwhm an array of the full width at half maximum of the Gaussians
+* `nλ` the number of laser
+* `λlaser` an array of the wavelengths of the lasers
+* `amplitude` an array of the amplitude of the maximum of the Gaussian spot
+* `fwhm` an array of the full width at half maximum of the Gaussians
 """
 mutable struct LaserModel
     nλ::Integer
@@ -58,6 +73,15 @@ mutable struct LaserModel
     fwhm::Array{Float64,1}
 end
 
+"""
+    LaserModel(λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::Array{Float64,1})
+
+Constructor of the model of the laser illumination.
+It consist on:
+* `λlaser` an array of the wavelengths of the lasers
+* `amplitude` an array of the amplitude of the maximum of each Gaussian spots
+* `fwhm` an array of the full width at half maximum of the Gaussians
+"""
 function LaserModel(λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::Array{Float64,1})
     nλ = length(λlaser);
     @assert length(amplitude)==nλ "amplitude vector does not have the right size"
@@ -65,6 +89,16 @@ function LaserModel(λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::
     LaserModel(nλ ,λlaser,amplitude,fwhm);
 end
 
+"""
+    UpdateLaserModel(self::LaserModel,A::Array{Float64,1},fwhm::Array{Float64,1})
+
+Update the parameters of the laser model
+* `self` :  LaserModel object
+* `A` : 1D  array of amplitudes of the maximum of each Gaussian spot
+* `fwhm` 1D  array of the full width at half maximum of each Gaussian spot
+
+`A` and `fwhm` must have lenth of `self.nλ`
+"""
 function UpdateLaserModel(self::LaserModel,A::Array{Float64,1},fwhm::Array{Float64,1})
     @assert length(A)==self.nλ "amplitude vector does not have the right size"
     @assert length(fwhm)==self.nλ "fwhm vector does not have the right size"
@@ -74,11 +108,13 @@ end
 
 
 """
-    Model of a lenslet
-    The image of a lenslet on the detector is decribed by
-    * bbox the boundingbox of its influence on the detector
-    * dmodel the dispersion model described by a object of type 'DispModel'
-    """
+    LensletModel(bbox::BoundingBox{Int},dmodel::DispModel)
+
+Model of a lenslet
+The image of a lenslet on the detector is decribed by:
+* `bbox` the boundingbox of its influence on the detector
+* `dmodel` the dispersion model described by a object of type `DispModel`
+"""
 struct LensletModel
     bbox::BoundingBox{Int}  # Boundingbox of influence of the lenslet on the detector
     dmodel::DispModel       # dispersion model of the lenslet
@@ -87,14 +123,14 @@ end
 
 
 """
-    lmod = LensletModel(λ0,λlaser,bbox);
-    Lenslet model constructor
-    * λ0 is the reference wavelength
-    * λlaser is a 1D array of laser wavelengths
-    * bbox is the bounding box of the lenslet on the detector 
+    lmod = LensletModel(λ0::Float64, order::Integer, bbox::BoundingBox{Int})
+    
+Lenslet model constructor
+* `λ0`  : reference wavelength
+* `order` : order of the polynomials
+* `bbox` : bounding box of the lenslet on the detector 
 """
-function LensletModel(λ0::Float64, laser::LaserModel, bbox::BoundingBox{Int})
-    local order = laser.nλ - 1; # the order of the polynomial is the number of laser -1
+function LensletModel(λ0::Float64, order::Integer, bbox::BoundingBox{Int})
     cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
     cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
     LensletModel(bbox, DispModel(λ0, order, cx, cy))
@@ -103,9 +139,11 @@ end
 
 """
     GaussianModel(A,fwhm,x,y)
-    Compute the value  at position (x,y) of a 2D centered Gaussian 
-    * fwhm is full-width at half maximum 
-    * A is the amplitude at (x,y) = (0,0)
+    
+Compute the value  at position (x,y) of a 2D centered Gaussian 
+* `fwhm` : full-width at half maximum 
+* `A` : amplitude at (x,y) = (0,0)
+* `x`, `y`: sampled postions
 """
 function GaussianModel(A::Float64, fwhm::Float64, x::Float64, y::Float64)
     local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
@@ -113,10 +151,12 @@ function GaussianModel(A::Float64, fwhm::Float64, x::Float64, y::Float64)
 end
 
 """
-     GaussianModel(A,fwhm,r)
-     Compute the value at position r 1D centered Gaussian 
-     * fwhm is full-width at half maximum 
-     * A is the amplitude at r = 0
+    GaussianModel(A::Float64, fwhm::Float64, x::AbstractArray)
+
+Compute the value at position x 1D centered Gaussian 
+* `A` : amplitude at x = 0
+* `fwhm` : full-width at half maximum 
+* `x`: array of the sampled position
 """
 function GaussianModel(A::Float64, fwhm::Float64, x::AbstractArray)
     local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
@@ -124,10 +164,14 @@ function GaussianModel(A::Float64, fwhm::Float64, x::AbstractArray)
 end
 
 """
-     GaussianModel2(A,fwhm,r)
-     Compute the value at position sqrt(r) 1D centered Gaussian 
-     * fwhm is full-width at half maximum 
-     * A is the amplitude at r = 0
+    GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
+
+Compute the value at position sqrt(r) 1D centered Gaussian 
+* `A` : amplitude at x = 0
+* `fwhm` : full-width at half maximum 
+* `x`: array of the squared sampled position
+
+Equivalent to `GaussianModel(A, fwhm, sqrt.(x))`
 """
 function GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
     local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
@@ -135,13 +179,14 @@ function GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
 end
 
 """
-    GaussianSpotsCost(data,weight,lmodel, A,fwhm,C)    
-    Compute a weighted quadratic cost of a lenslet model :
-    cost = weight .* || data - model ||^2 
-    * lmodel is the model of the lenslet
-    * A is a 1D array containing the amplitude  of all Gaussian spots
-    * fwhm is an 1D array containing the fwhm  of all Gaussian spots
-    * C are the chromatic law coefficients.
+    GaussianSpotsCost(data::Array{Float64,2}, weight::Array{Float64,2}, lmodel::LensletModel,  laser::LaserModel,A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2}) 
+
+Compute a weighted quadratic cost of a lenslet model :
+cost = weight .* || data - model ||^2 
+* `lmodel`:  model of the lenslet
+* `A` : 1D array containing the amplitude  of all Gaussian spots
+* `fwhm` : 1D array containing the fwhm  of all Gaussian spots
+* `C` : 2D array containing the chromatic law coefficients.
 """
 function GaussianSpotsCost(data::Array{Float64,2}, weight::Array{Float64,2}, lmodel::LensletModel,  laser::LaserModel,A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
     UpdateDispModel(lmodel.dmodel, C);
@@ -160,12 +205,13 @@ end
 
 
 """
-    GaussianSpotsModel(model,lmodel, A,fwhm,C)    
-    Build the model of a lenslet 
-    * lmodel is the model of the lenslet
-    * A is a 1D array containing the amplitude  of all Gaussian spots
-    * fwhm is an 1D array containing the fwhm  of all Gaussian spots
-    * C are the chromatic law coefficients.
+    GaussianSpotsModel(lmodel::LensletModel,laser::LaserModel, A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
+    
+Build the model of a lenslet 
+* `lmodel`:  model of the lenslet
+* `A` : 1D array containing the amplitude  of all Gaussian spots
+* `fwhm` : 1D array containing the fwhm  of all Gaussian spots
+* `C` : 2D array containing the chromatic law coefficients.
 """
 function GaussianSpotsModel(lmodel::LensletModel,laser::LaserModel, A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
     UpdateDispModel(lmodel.dmodel, C);
@@ -185,11 +231,11 @@ end
 
 
 """
-LensletLaserImage(model,lmodel, A,fwhm,C)    
-    Build the image of a lenslet under laser illumination
-    * lmodel is the model of the lenslet
-    * A is a 1D array containing the amplitude  of all Gaussian spots
-    * fwhm is an 1D array containing the fwhm  of all Gaussian spots
+    LensletLaserImage(lmodel::LensletModel,laser::LaserModel) 
+    
+Build the image of a lenslet under laser illumination
+* `lmodel`: model of the lenslet
+* `laser`: model of the laser illumination
 """
 function LensletLaserImage(lmodel::LensletModel,laser::LaserModel)
     bbox = lmodel.bbox;
