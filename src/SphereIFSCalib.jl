@@ -36,8 +36,9 @@ function (self::DispModel)(λ::Float64)
     x = self.cx[1];
     y = self.cy[1];
     for o in 1:self.order
-        x += self.cx[o + 1]  * (self.λ0 - λ)^(o);
-        y += self.cy[o + 1]  * (self.λ0 - λ)^(o);
+        λpo = ((self.λ0 - λ)/self.λ0 )^(o)
+        x += self.cx[o + 1]  * λpo;
+        y += self.cy[o + 1]  * λpo;
     end
     return (x, y)
 end
@@ -135,6 +136,45 @@ function LensletModel(λ0::Float64, order::Integer, bbox::BoundingBox{Int})
     cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
     LensletModel(bbox, DispModel(λ0, order, cx, cy))
 end
+
+
+"""
+    lmod = LensletModel(λ0::Float64, order::Integer, bbox::BoundingBox{Int},cx0::Float64,cy0::Float64)
+    
+Lenslet model constructor
+* `λ0`  : reference wavelength
+* `order` : order of the polynomials
+* `bbox` : bounding box of the lenslet on the detector 
+* `cx0` : 
+* `cy0` : 
+"""
+function LensletModel(λ0::Float64, order::Integer, bbox::BoundingBox{Int},cx0::Float64,cy0::Float64)
+    cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
+    cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
+    cx[1] = cx0;
+    cy[1] = cy0;
+    LensletModel(bbox, DispModel(λ0, order, cx, cy))
+end
+
+
+"""
+    lmod = LensletModel(λ0::Float64, order::Integer, bbox::BoundingBox{Int})
+    
+Lenslet model constructor
+* `λ0`  : reference wavelength
+* `order` : order of the polynomials
+* `bbox` : bounding box of the lenslet on the detector 
+"""
+function LensletModel(λ0::Float64, order::Integer,cx0::Float64,cy0::Float64, widthx, widthy)
+    cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
+    cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
+    cx[1] = cx0;
+    cy[1] = cy0;
+    bbox = BoundingBox(xmin=cx0-widthx, ymin=Int(round(cy0-widthy)), xmax=Int(round(cx0+widthx)), ymax=Int(round(cy0+widthy)));
+    LensletModel(bbox, DispModel(λ0, order, cx, cy))
+end
+
+
 
 
 """
