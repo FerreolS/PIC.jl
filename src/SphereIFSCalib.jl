@@ -36,7 +36,7 @@ function (self::DispModel)(λ::Float64)
     x = self.cx[1];
     y = self.cy[1];
     for o in 1:self.order
-        λpo = ((self.λ0 - λ)/self.λ0 )^(o)
+        λpo = (( λ - self.λ0)/self.λ0 )^(o)
         x += self.cx[o + 1]  * λpo;
         y += self.cy[o + 1]  * λpo;
     end
@@ -280,13 +280,65 @@ Build the image of a lenslet under laser illumination
 function LensletLaserImage(lmodel::LensletModel,laser::LaserModel)
     bbox = lmodel.bbox;
     (rx,ry) = axes(bbox) # extracting bounding box range
-    spotsmodel =   zeros(Float64,round(bbox).xmax-round(bbox).xmin+1,round(bbox).ymax-round(bbox).ymin+1);
+    spotsmodel =   zeros(Float64,size(round(bbox)));
     for (index, λ) in enumerate(laser.λlaser)  # For all laser
         (mx, my)  = lmodel.dmodel(λ);  # center of the index-th Gaussian spot 
         r = ((rx.-mx).^2) .+ ((ry.-my).^2)';  
         spotsmodel = spotsmodel .+ GaussianModel2(laser.amplitude[index], laser.fwhm[index], r)  
     end   
     return spotsmodel; 
+end
+
+
+"""
+    LikelihoodIFS(model::LensletModel,laser::LaserModel,data::AbstractArray,precision::AbstractArray)
+    
+Build the likelihood function for a given lenslet
+* `lmodel`: model of the lenslet
+* `laser`: model of the laser illumination
+* `data` : data 
+* `precision`: precision (ie inverse variance) of the data
+"""
+mutable struct LikelihoodIFS
+    model::LensletModel
+    laser::LaserModel
+    data::AbstractArray
+    precision::AbstractArray
+    # Inner constructor provided to force using outer constructors.
+    function LikelihoodIFS(model::LensletModel,
+        laser::LaserModel,
+        data::AbstractArray,
+        precision::AbstractArray)
+    @assert laser.nλ > model.dmodel.order # the order of the law must be less than the number of laser
+    @assert (length(precision)==1) || (size(data) == size(precision))
+    return new(model,laser,data, precision)
+end
+
+LikelihoodIFS(model::LensletModel,laser::LaserModel,data::AbstractArray) =
+    LikelihoodIFS(model::LensletModel,laser::LaserModel,data::AbstractArray,1.0)    
+
+function  (self::LikelihoodIFS)(a::Array{Float64,1},fwhm::Array{Float64,1},C::Array{Float64,2}) 
+    UpdateDispModel(self.model.dmodel, C);
+    UpdateLaserModel(self.laser,a,fwhm);
+    return sum(self.precision.(self.data .- LensletLaserImage(self.model,self.laser)).^2)
+end
+
+"""
+    (self::LikelihoodIFS)(x::Vector{Float64}) 
+    compute the likelihood for a given lenslet for the parameters `x`
+    
+    ### Example
+    ```
+    laser =  LaserModel(λlaser,a0,fwhm0)
+    lenslet = LensletModel(λ0,laser.nλ-1,round(bbox))
+    xinit = vcat([ainit[:],fwhminit[:],cinit[:]]...)
+    lkl = LikelihoodIFS(lenslet,laser,view(data,lenslet.bbox), view(precision,lenslet.bbox))
+    xopt = vmlmb(lkl, xinit; verb=50)
+    ```
+"""
+function  (self::LikelihoodIFS)(x::Vector{Float64}) 
+    (a,fwhm,c) = (x[1:(self.laser.nλ)],x[(self.laser.nλ+1):(2*self.laser.nλ)],reshape(x[(2*self.laser.nλ+1):(4*self.laser.nλ)],2,:));
+    self(a,fwhm,c)
 end
 #end
 
