@@ -312,6 +312,7 @@ mutable struct LikelihoodIFS
     @assert laser.nλ > model.dmodel.order # the order of the law must be less than the number of laser
     @assert (length(precision)==1) || (size(data) == size(precision))
     return new(model,laser,data, precision)
+    end
 end
 
 LikelihoodIFS(model::LensletModel,laser::LaserModel,data::AbstractArray) =
