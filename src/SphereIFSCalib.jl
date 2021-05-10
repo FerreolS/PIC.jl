@@ -1,4 +1,4 @@
-#module SphereIFSCalib
+module SphereIFSCalib
 
 using Zygote
 using TwoDimensional
@@ -341,4 +341,4 @@ function  (self::LikelihoodIFS)(x::Vector{Float64})
     (a,fwhm,c) = (x[1:(self.laser.nλ)],x[(self.laser.nλ+1):(2*self.laser.nλ)],reshape(x[(2*self.laser.nλ+1):(4*self.laser.nλ)],2,:));
     self(a,fwhm,c)
 end
-#end
+end
