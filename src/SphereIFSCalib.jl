@@ -15,7 +15,7 @@ The dispersion model giving the position of a wavelength on the detector
 """
 mutable struct DispModel
     λ0::Float64   # reference wavelength
-    order::Int32  # order of the polynomial
+    order::Int  # order of the polynomial
     cx::Array{Float64,1} # coefficients of the polynomial along the x axis
     cy::Array{Float64,1} # coefficients of the polynomial along the y axis
 end
@@ -165,12 +165,12 @@ Lenslet model constructor
 * `order` : order of the polynomials
 * `bbox` : bounding box of the lenslet on the detector
 """
-function LensletModel(λ0::Float64, order::Int,cx0::Float64,cy0::Float64, widthx, widthy)
+function LensletModel(λ0::Float64, order::Int,cx0::Float64,cy0::Float64, widthx::Number, widthy::Number)
     cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
     cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
     cx[1] = cx0;
     cy[1] = cy0;
-    bbox = BoundingBox(xmin=cx0-widthx, ymin=Int(round(cy0-widthy)), xmax=Int(round(cx0+widthx)), ymax=Int(round(cy0+widthy)));
+    bbox = round(Int,BoundingBox(xmin=cx0-widthx, ymin=cy0-widthy, xmax=cx0+widthx, ymax=cy0+widthy));
     LensletModel(bbox, DispModel(λ0, order, cx, cy))
 end
 
@@ -214,8 +214,13 @@ Compute the value at position sqrt(r) 1D centered Gaussian
 Equivalent to `GaussianModel(A, fwhm, sqrt.(x))`
 """
 function GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
-    local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
+    local fwhm2sigma = Float64(1) / (2 * sqrt(2 * log(2.)))
     return A .* exp.(-x ./ (2 * (fwhm * fwhm2sigma )^2));
+end
+
+function GaussianModel2(A::Float64, fwhm::Float64, x::AbstractFloat)
+    local fwhm2sigma = Float64(1) / (2 * sqrt(2 * log(2.)))
+    return A * exp(-x / (2 * (fwhm * fwhm2sigma )^2));
 end
 
 """
@@ -256,6 +261,7 @@ Build the model of a lenslet
 function GaussianSpotsModel(lmodel::LensletModel,laser::LaserModel, A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
     UpdateDispModel(lmodel.dmodel, C);
     UpdateLaserModel(laser,A,fwhm);
+    bbox = lmodel.dmodel;
     model = zeros(Float64,round(bbox).xmax-round(bbox).xmin+1,round(bbox).ymax-round(bbox).ymin+1);
     t = Zygote.Buffer(model);
     t[:] = model[:];
@@ -281,10 +287,10 @@ function LensletLaserImage(lmodel::LensletModel,laser::LaserModel)
     bbox = lmodel.bbox;
     (rx,ry) = axes(bbox) # extracting bounding box range
     spotsmodel =   zeros(Float64,size(round(bbox)));
-    for (index, λ) in enumerate(laser.λlaser)  # For all laser
+    @inbounds for (index, λ) in enumerate(laser.λlaser)  # For all laser
         (mx, my)  = lmodel.dmodel(λ);  # center of the index-th Gaussian spot
         r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
-        spotsmodel = spotsmodel .+ GaussianModel2(laser.amplitude[index], laser.fwhm[index], r)
+        spotsmodel = spotsmodel .+ GaussianModel2.(laser.amplitude[index], laser.fwhm[index], r)
     end
     return spotsmodel;
 end
@@ -299,24 +305,34 @@ Build the likelihood function for a given lenslet
 * `data` : data
 * `precision`: precision (ie inverse variance) of the data
 """
-mutable struct LikelihoodIFS
+struct LikelihoodIFS{T<:AbstractFloat}
     model::LensletModel
     laser::LaserModel
-    data::AbstractArray
-    precision::Union{Float64,AbstractArray}
+    data::Array{T,2}
+    precision::Union{T,Array{T,2}}
     # Inner constructor provided to force using outer constructors.
-    function LikelihoodIFS(model::LensletModel,
+    function LikelihoodIFS{T}(model::LensletModel,
         laser::LaserModel,
-        data::AbstractArray,
-        precision::Union{Float64,AbstractArray})
+        data::Array{T,2},
+        precision::Union{T,Array{T,2}}) where {T<:AbstractFloat}
         @assert laser.nλ > model.dmodel.order # the order of the law must be less than the number of laser
         @assert (length(precision)==1) || (size(data) == size(precision))
-        return new(model,laser,data, precision)
+        return new{T}(model,laser,data, precision)
     end
 end
 
-LikelihoodIFS(model::LensletModel,laser::LaserModel,data::AbstractArray) =
-    LikelihoodIFS(model::LensletModel,laser::LaserModel,data::AbstractArray,1.0)
+function LikelihoodIFS(model::LensletModel,laser::LaserModel,data::AbstractArray{<:Real,2})
+    T = float(eltype(data))
+    LikelihoodIFS{T}(model,laser,convert(Array{T,2},data),T(1.0))
+end
+
+function LikelihoodIFS(model::LensletModel,
+                        laser::LaserModel,
+                        data::AbstractArray{<:Real,2},
+                        precision::Union{Real,AbstractArray{<:Real,2}})
+    T = float(promote_type(eltype(data),eltype(precision)))
+    LikelihoodIFS{T}(model,laser,convert(Array{T,2},data), T.(precision))
+end
 
 function  (self::LikelihoodIFS)(a::Array{Float64,1},fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
     UpdateDispModel(self.model.dmodel, C);

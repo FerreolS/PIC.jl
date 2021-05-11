@@ -30,8 +30,9 @@ limage = LensletLaserImage(lmod,laser)
 heatmap(limage)
 
 ldata = view(data, lmod.bbox);
-lkl = LikelihoodIFS(lmod,laser, ldata);
-cost(x::Vector{Float64}) = lkl(x)
+lweight = view(weight, lmod.bbox);
+lkl = LikelihoodIFS(lmod,laser, ldata,lweight);
+cost(x::Vector{Float64}) = lkl(x)::Float64
 
 xinit = vcat([a0[:],fwhm0[:],Cinit[:]]...);
 xopt = vmlmb(cost, xinit; verb=50);
