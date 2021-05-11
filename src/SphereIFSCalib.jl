@@ -58,7 +58,7 @@ function UpdateDispModel(self::DispModel, C::Array{Float64,2})
 end
 
 """
-    LaserModel(nλ::Integer,λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::Array{Float64,1})
+    LaserModel(nλ::Int,λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::Array{Float64,1})
 
 Model of the laser illumination.
 It consist on:
@@ -68,7 +68,7 @@ It consist on:
 * `fwhm` an array of the full width at half maximum of the Gaussians
 """
 mutable struct LaserModel
-    nλ::Integer
+    nλ::Int
     λlaser::Array{Float64,1}# wavelength of the laser
     amplitude::Array{Float64,1}
     fwhm::Array{Float64,1}
@@ -124,14 +124,14 @@ end
 
 
 """
-    lmod = LensletModel(λ0::Float64, order::Integer, bbox::BoundingBox{Int})
+    lmod = LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int})
 
 Lenslet model constructor
 * `λ0`  : reference wavelength
 * `order` : order of the polynomials
 * `bbox` : bounding box of the lenslet on the detector
 """
-function LensletModel(λ0::Float64, order::Integer, bbox::BoundingBox{Int})
+function LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int})
     cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
     cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
     LensletModel(bbox, DispModel(λ0, order, cx, cy))
@@ -139,7 +139,7 @@ end
 
 
 """
-    lmod = LensletModel(λ0::Float64, order::Integer, bbox::BoundingBox{Int},cx0::Float64,cy0::Float64)
+    lmod = LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int},cx0::Float64,cy0::Float64)
 
 Lenslet model constructor
 * `λ0`  : reference wavelength
@@ -148,7 +148,7 @@ Lenslet model constructor
 * `cx0` :
 * `cy0` :
 """
-function LensletModel(λ0::Float64, order::Integer, bbox::BoundingBox{Int},cx0::Float64,cy0::Float64)
+function LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int},cx0::Float64,cy0::Float64)
     cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
     cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
     cx[1] = cx0;
@@ -158,14 +158,14 @@ end
 
 
 """
-    lmod = LensletModel(λ0::Float64, order::Integer, bbox::BoundingBox{Int})
+    lmod = LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int})
 
 Lenslet model constructor
 * `λ0`  : reference wavelength
 * `order` : order of the polynomials
 * `bbox` : bounding box of the lenslet on the detector
 """
-function LensletModel(λ0::Float64, order::Integer,cx0::Float64,cy0::Float64, widthx, widthy)
+function LensletModel(λ0::Float64, order::Int,cx0::Float64,cy0::Float64, widthx, widthy)
     cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
     cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
     cx[1] = cx0;
@@ -318,10 +318,10 @@ end
 LikelihoodIFS(model::LensletModel,laser::LaserModel,data::AbstractArray) =
     LikelihoodIFS(model::LensletModel,laser::LaserModel,data::AbstractArray,1.0)
 
-function  (self::LikelihoodIFS)(a::Array{Float64,1},fwhm::Array{Float64,1},C::Array{Float64,2})
+function  (self::LikelihoodIFS)(a::Array{Float64,1},fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
     UpdateDispModel(self.model.dmodel, C);
     UpdateLaserModel(self.laser,a,fwhm);
-    return sum(self.precision .* (self.data .- LensletLaserImage(self.model,self.laser)).^2)
+    return Float64.(sum(self.precision .* (self.data .- LensletLaserImage(self.model,self.laser)).^2))
 end
 
 """
@@ -337,8 +337,8 @@ end
     xopt = vmlmb(lkl, xinit; verb=50)
     ```
 """
-function  (self::LikelihoodIFS)(x::Vector{Float64})
-    (a,fwhm,c) = (x[1:(self.laser.nλ)],x[(self.laser.nλ+1):(2*self.laser.nλ)],reshape(x[(2*self.laser.nλ+1):(4*self.laser.nλ)],2,:));
+function  (self::LikelihoodIFS)(x::Vector{Float64})::Float64
+    (a::Vector{Float64},fwhm::Vector{Float64},c::Matrix{Float64}) = (x[1:(self.laser.nλ)],x[(self.laser.nλ+1):(2*self.laser.nλ)],reshape(x[(2*self.laser.nλ+1):(4*self.laser.nλ)],2,:));
     self(a,fwhm,c)
 end
 end
