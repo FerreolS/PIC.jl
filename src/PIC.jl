@@ -5,7 +5,26 @@
 
 module PIC
 
+using TwoDimensional, Zygote, OptimPackNextGen
+
+export
+    DispModel,
+    LaserModel,
+    LensletModel,
+    LikelihoodIFS,
+    LensletLaserImage,
+    UpdateDispModel,
+    UpdateLaserModel
+
 include("SphereIFSCalib.jl")
-import .SphereIFSCalib
+
+import .SphereIFSCalib:
+    DispModel,
+    LaserModel,
+    LensletModel,
+    LikelihoodIFS,
+    LensletLaserImage,
+    UpdateDispModel,
+    UpdateLaserModel
 
 end # module
