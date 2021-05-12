@@ -35,4 +35,4 @@ lkl = LikelihoodIFS(lmod,laser, ldata,lweight);
 cost(x::Vector{Float64}) = lkl(x)::Float64
 
 xinit = vcat([a0[:],fwhm0[:],Cinit[:]]...);
-xopt = vmlmb(cost, xinit; verb=50);
+xopt = vmlmb(cost, xinit; verb=50, ftol=(0.0,0),gtol = (0.0,0));
