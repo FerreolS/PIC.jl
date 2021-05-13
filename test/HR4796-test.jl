@@ -49,10 +49,10 @@ dymax = 16;
 
 valid = ((cx0 .- dxmin).>0) .&  ((cx0 .+ dxmax).<2048) .&  ((cy0 .- dymin).>0) .&  ((cy0 .+ dymax).<2048);
 
-lenslettab = Array{LensletModel}(undef,lensletnumber);
-atab = zeros(3,lensletnumber);
-fwhmtab = zeros(3,lensletnumber);
-ctab = zeros(2,3,lensletnumber);
+lenslettab = Array{Union{LensletModel,Missing}}(missing,lensletnumber);
+atab = Array{Union{Float64,Missing}}(missing,3,lensletnumber);
+fwhmtab = Array{Union{Float64,Missing}}(missing,3,lensletnumber);
+ctab = Array{Union{Float64,Missing}}(missing,2,3,lensletnumber);
 
 Threads.@threads for i in collect(1:lensletnumber)[valid]
     bbox = round(Int, BoundingBox(cx0[i,1]-dxmin, cx0[i,1]+dxmax, cy0[i,1]-dymin, cy0[i,1]+dymax));
