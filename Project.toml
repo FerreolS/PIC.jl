@@ -1,6 +1,6 @@
 name = "PIC"
 uuid = "7608847e-9cad-4612-9fc6-33c51f3bd25d"
-authors = ["ferreol <ferreol.soulez@free.fr>"]
+authors = ["Ferreol Soulez<ferreol.soulez@univ-lyon1.fr>"]
 version = "0.1.0"
 
 [deps]
