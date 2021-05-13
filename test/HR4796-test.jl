@@ -63,9 +63,14 @@ Threads.@threads for i in collect(1:lensletnumber)[valid]
     badpixview = view(badpix,bbox)
     lkl = LikelihoodIFS(lenslettab[i],laser, laserDataView,badpixview);
     cost(x::Vector{Float64}) = lkl(x)
-    xopt = vmlmb(cost, xinit; verb=false,maxeval=500);
-    (aopt,fwhmopt,copt) = (xopt[1:(laser.nλ)],xopt[(laser.nλ+1):(2*laser.nλ)],reshape(xopt[(2*laser.nλ+1):(4*laser.nλ)],2,:));
-    atab[:,i] = aopt
-    fwhmtab[:,i] = fwhmopt
-    ctab[:,:,i] = copt
+    try
+        xopt = vmlmb(cost, xinit; verb=false,maxeval=500);
+        (aopt,fwhmopt,copt) = (xopt[1:(laser.nλ)],xopt[(laser.nλ+1):(2*laser.nλ)],reshape(xopt[(2*laser.nλ+1):(4*laser.nλ)],2,:));
+        atab[:,i] = aopt
+        fwhmtab[:,i] = fwhmopt
+        ctab[:,:,i] = copt
+    catch
+        continue
+    end
+
 end
