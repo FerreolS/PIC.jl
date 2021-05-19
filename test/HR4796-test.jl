@@ -33,8 +33,8 @@ lensletnumber= length(cx0)
 lampData =  read(FITS("/Users/ferreol/Data/SPHERE/HR_4796-HD_95086/IFS_calib_spec_corrected.fits")[1])
 laserData =  read(FITS("/Users/ferreol/Data/SPHERE/HR_4796-HD_95086/IFS_calib_wave_corrected.fits")[1])
 badpix = Float64.(read(FITS("/Users/ferreol/Data/SPHERE/HR_4796-HD_95086/IFS_BP_corrected.fits")[1]))
-ainit = [1000. , 600. , 200.];
-fwhminit = [2.0, 2.0 , 2.0];
+ainit = [990. , 690. , 310.];
+fwhminit = [2.3, 2.4 , 2.7];
 laser =  LaserModel(λlaser,ainit,fwhminit);
 
 largeur = 4;
@@ -59,15 +59,17 @@ Threads.@threads for i in findall(valid)
 
     lenslettab[i] = LensletModel(λ0,laser.nλ-1, bbox);
     Cinit= [ [cx0[i,1] mcx1 mcx2]; [cy0[i,1] mcy1 mcy2] ];
-    xinit = vcat([ainit[:],fwhminit[:],Cinit[:]]...);
+ #   xinit = vcat([ainit[:],fwhminit[:],Cinit[:]]...);
+    xinit = vcat([fwhminit[:],Cinit[:]]...);
     laserDataView = view(laserData, bbox);
     badpixview = view(badpix,bbox)
     lkl = LikelihoodIFS(lenslettab[i],deepcopy(laser), laserDataView,badpixview);
     cost(x::Vector{Float64}) = lkl(x)
     try
-        xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-4),maxeval=500);
-        (aopt,fwhmopt,copt) = (xopt[1:(laser.nλ)],xopt[(laser.nλ+1):(2*laser.nλ)],reshape(xopt[(2*laser.nλ+1):(4*laser.nλ)],2,:));
-        atab[:,i] = aopt
+        xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500);
+      #  (aopt,fwhmopt,copt) = (xopt[1:(laser.nλ)],xopt[(laser.nλ+1):(2*laser.nλ)],reshape(xopt[(2*laser.nλ+1):(4*laser.nλ)],2,:));
+        (fwhmopt,copt) = (xopt[1:(laser.nλ)],reshape(xopt[(laser.nλ+1):(3*laser.nλ)],2,:));
+       # atab[:,i] = aopt
         fwhmtab[:,i] = fwhmopt
         ctab[:,:,i] = copt
     catch
@@ -75,3 +77,4 @@ Threads.@threads for i in findall(valid)
     end
     next!(p)
 end
+ProgressMeter.finish!(p)

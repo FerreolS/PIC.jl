@@ -1,6 +1,6 @@
 module SphereIFSCalib
 
-using Zygote
+using Zygote, StaticArrays
 using TwoDimensional
 
 
@@ -223,6 +223,21 @@ function GaussianModel2(A::Float64, fwhm::Float64, x::AbstractFloat)
     return A * exp(-x / (2 * (fwhm * fwhm2sigma )^2));
 end
 
+function GaussianModel2(fwhm::Float64, x::AbstractArray)
+    local fwhm2sigma = Float64(1) / (2 * sqrt(2 * log(2.)))
+    return exp.(-x ./ (2 * (fwhm * fwhm2sigma )^2));
+end
+
+function GaussianModel2(fwhm::Float64, x::AbstractFloat)
+    local fwhm2sigma = Float64(1) / (2 * sqrt(2 * log(2.)))
+    return exp(-x / (2 * (fwhm * fwhm2sigma )^2));
+end
+
+function GaussianModel2!(ret::AbstractArray{T},fwhm::Float64, x::AbstractArray{T}) where (T<:AbstractFloat)
+        ret .= exp.(-x ./ (2 * (fwhm * Float64(1) / (2 * sqrt(2 * log(2.))) )^2));
+        nothing
+end
+
 """
     GaussianSpotsCost(data::Array{Float64,2}, weight::Array{Float64,2}, lmodel::LensletModel,  laser::LaserModel,A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
 
@@ -295,29 +310,99 @@ function LensletLaserImage(lmodel::LensletModel,laser::LaserModel)
     return spotsmodel;
 end
 
+"""
+    LensletLaserImageA(lmodel::LensletModel,laser::LaserModel)
+
+Build the image of a lenslet under laser illumination
+* `lmodel`: model of the lenslet
+* `laser`: model of the laser illumination
+"""
+function LensletLaserImage!(spotsmodel::Array{Float64,3},lmodel::LensletModel,laser::LaserModel)
+    bbox = lmodel.bbox;
+    (rx,ry) = axes(bbox) # extracting bounding box range
+  #  model = zeros(Float64,laser.nλ,size(round(bbox)...));
+   # t = Zygote.Buffer(spotsmodel);
+  #  spotsmodel =   zeros(Float64,size(round(bbox)));
+    @inbounds for (index, λ) in enumerate(laser.λlaser)  # For all laser
+        (mx, my)  = lmodel.dmodel(λ);  # center of the index-th Gaussian spot
+        r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
+        spotsmodel[:,:,index]= GaussianModel2( laser.fwhm[index], r)
+    end
+    nothing
+end
+"""
+    LensletLaserImageA(lmodel::LensletModel,laser::LaserModel)
+
+Build the image of a lenslet under laser illumination
+* `lmodel`: model of the lenslet
+* `laser`: model of the laser illumination
+"""
+function LensletLaserImage2(lmodel::LensletModel,laser::LaserModel)
+    bbox = lmodel.bbox;
+    (rx,ry) = axes(bbox) # extracting bounding box range
+    model = zeros(Float64,size(round(bbox))...,laser.nλ);
+    t = Zygote.Buffer(model);
+  #  spotsmodel =   zeros(Float64,size(round(bbox)));
+    @inbounds for (index, λ) in enumerate(laser.λlaser)  # For all laser
+        (mx, my)  = lmodel.dmodel(λ);  # center of the index-th Gaussian spot
+        r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
+        t[:,:,index]= GaussianModel2.( laser.fwhm[index], r)
+    end
+    return copy(t)
+end
+
 
 """
-    LikelihoodIFS(model::LensletModel,laser::LaserModel,data::AbstractArray,precision::AbstractArray)
+    LikelihoodIFS(model::LensletModel,laser::LaserModel,data::AbstractArray,weight::AbstractArray)
 
 Build the likelihood function for a given lenslet
 * `lmodel`: model of the lenslet
 * `laser`: model of the laser illumination
 * `data` : data
-* `precision`: precision (ie inverse variance) of the data
+* `weight`: precision (ie inverse variance) of the data
 """
-struct LikelihoodIFS{T<:AbstractFloat}
+struct LikelihoodIFS{T<:AbstractFloat,N}
+    nspots::Int
     model::LensletModel
     laser::LaserModel
     data::Array{T,2}
-    precision::Union{T,Array{T,2}}
+    weight::Array{T,2}
+    dwd::Float64
+    spots::Array{T,3}
+    wspots::Array{T,3}
+    b::Array{T,1}#MVector{N, Float64}
+    A::Array{T,2}#MMatrix{N, N,Float64}
     # Inner constructor provided to force using outer constructors.
     function LikelihoodIFS{T}(model::LensletModel,
         laser::LaserModel,
         data::Array{T,2},
-        precision::Union{T,Array{T,2}}) where {T<:AbstractFloat}
-        @assert laser.nλ > model.dmodel.order # the order of the law must be less than the number of laser
-        @assert (length(precision)==1) || (size(data) == size(precision))
-        return new{T}(model,laser,data, precision)
+        weight::Array{T,2}) where {T<:AbstractFloat}
+        N=laser.nλ;
+        #@assert laser.nλ == N
+        @assert laser.nλ > model.dmodel.order " the order of the law must be less than the number of laser"
+        @assert size(data) == size(weight)
+        dwd = sum(weight.*data.^2)
+        spots = zeros(Float64,size(round(model.bbox))...,N)
+        wspots = similar(spots)
+        b =  zeros(Float64,N)
+        A =  zeros(Float64,N,N)
+        N2 = N*N
+        return new{T,N}(N,model,laser,data, weight,dwd,spots,wspots,b,A)
+    end
+    # Inner constructor provided to force using outer constructors.
+    function LikelihoodIFS{T}(model::LensletModel,
+        laser::LaserModel,
+        data::Array{T,2},
+        weight::T) where {T<:AbstractFloat}
+        N=laser.nλ;
+        #@assert laser.nλ == N
+        @assert laser.nλ > model.dmodel.order " the order of the law must be less than the number of laser"
+        dwd = sum(weight.*data.^2)
+        spots = zeros(Float64,size(round(model.bbox))...,N)
+        wspots = similar(spots)
+        b = @MVector zeros(Float64,N)
+        A = @MMatrix zeros(Float64,N,N)
+        return new{T,N}(N,model,laser,data, weight*ones(1,1),dwd,spots,wspots,b,A)
     end
 end
 
@@ -329,15 +414,15 @@ end
 function LikelihoodIFS(model::LensletModel,
                         laser::LaserModel,
                         data::AbstractArray{<:Real,2},
-                        precision::Union{Real,AbstractArray{<:Real,2}})
-    T = float(promote_type(eltype(data),eltype(precision)))
-    LikelihoodIFS{T}(model,laser,convert(Array{T,2},data), T.(precision))
+                        weight::Union{Real,AbstractArray{<:Real,2}})
+    T = float(promote_type(eltype(data),eltype(weight)))
+    LikelihoodIFS{T}(model,laser,convert(Array{T,2},data), T.(weight))
 end
 
 function  (self::LikelihoodIFS)(a::Array{Float64,1},fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
     UpdateDispModel(self.model.dmodel, C);
     UpdateLaserModel(self.laser,a,fwhm);
-    return Float64.(sum(self.precision .* (self.data .- LensletLaserImage(self.model,self.laser)).^2))
+    return Float64.(sum(self.weight .* (self.data .- LensletLaserImage(self.model,self.laser)).^2))
 end
 
 """
@@ -349,12 +434,83 @@ end
     laser =  LaserModel(λlaser,a0,fwhm0)
     lenslet = LensletModel(λ0,laser.nλ-1,round(bbox))
     xinit = vcat([ainit[:],fwhminit[:],cinit[:]]...)
-    lkl = LikelihoodIFS(lenslet,laser,view(data,lenslet.bbox), view(precision,lenslet.bbox))
+    lkl = LikelihoodIFS(lenslet,laser,view(data,lenslet.bbox), view(weight,lenslet.bbox))
     xopt = vmlmb(lkl, xinit; verb=50)
     ```
 """
-function  (self::LikelihoodIFS)(x::Vector{Float64})::Float64
+#= function  (self::LikelihoodIFS)(x::Vector{Float64})::Float64
     (a::Vector{Float64},fwhm::Vector{Float64},c::Matrix{Float64}) = (x[1:(self.laser.nλ)],x[(self.laser.nλ+1):(2*self.laser.nλ)],reshape(x[(2*self.laser.nλ+1):(4*self.laser.nλ)],2,:));
     self(a,fwhm,c)
+end =#
+function  (self::LikelihoodIFS)(x::Vector{Float64})::Float64
+    (fwhm::Vector{Float64},c::Matrix{Float64}) = (x[1:(self.laser.nλ)],reshape(x[(self.laser.nλ+1):(3*self.laser.nλ)],2,:));
+    self(fwhm,c)
+end
+
+function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
+    # @assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
+     UpdateDispModel(self.model.dmodel, C);
+     bbox = self.model.bbox;
+     (rx,ry) = axes(bbox) # extracting bounding box range
+     m = Zygote.Buffer(self.spots);
+     @inbounds for (index, λ) in enumerate(self.laser.λlaser)  # For all laser
+        (mx, my)  = self.model.dmodel(λ);  # center of the index-th Gaussian spot
+        r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
+        m[:,:,index] = GaussianModel2.( fwhm[index], r);
+     end
+    spots = copy(m)
+    Zygote.@ignore  self.b .= updateAmplitude(self.nspots,spots,self.data,self.weight)
+    sumspot =   zeros(Float64,size(round(bbox)));
+    @inbounds for i =1:self.nspots
+        sumspot += self.b[i] *spots[:,:,i]
+    end
+    return Float64.(sum(self.weight .* (self.data .-sumspot).^2))
+ end
+
+#=
+function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
+   # @assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
+    UpdateDispModel(self.model.dmodel, C);
+    bbox = self.model.bbox;
+    (rx,ry) = axes(bbox) # extracting bounding box range
+    m = Zygote.Buffer(self.spots);
+    mw = Zygote.Buffer(self.wspots);
+    a = Zygote.Buffer(self.A)
+    b = Zygote.Buffer(self.b)
+    @inbounds for (index, λ) in enumerate(self.laser.λlaser)  # For all laser
+        (mx, my)  = self.model.dmodel(λ);  # center of the index-th Gaussian spot
+        r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
+        GaussianModel2!(( m[:,:,index]), fwhm[index], r);
+        mw[:,:,index] .=  m[:,:,index].* self.weight ;
+        b[index] = Float64.(sum(mw[:,:,index].*self.data ));
+        a[index,index] = Float64.(sum(mw[:,:,index].*m[:,:,index]));
+        for i=1:index-1
+            tmp = Float64.(sum(mw[:,:,index].*m[:,:,i]))
+            a[i,index] = tmp
+            a[index,i] = tmp;
+        end
+    end
+    #self.A = copy(a);
+  #  amplitude =  similar(self.b)
+  A= copy(a)
+  B= copy(b)
+    amplitude =updateAmplitude(A,B)
+    return Float64.(sum(amplitude .* (A * amplitude + 2 * B)) + self.dwd);
+    #return Float64.(sum(self.weight .* (self.data .- LensletLaserImage(self.model,self.laser)).^2))
+end =#
+
+ Zygote.@nograd  function updateAmplitude(N::Int,spots::AbstractArray{T},data::AbstractArray{T},weight::AbstractArray{T}) where T<:AbstractFloat
+    A = @MMatrix zeros(Float64,N,N)
+    b = @MVector zeros(Float64,N)
+    mw = similar(spots);
+    @inbounds for index=1:N
+        mw[:,:,index] .=  spots[:,:,index].* weight ;
+        b[index] = sum(mw[:,:,index].* data );
+        A[index,index] = sum(mw[:,:,index].* spots[:,:,index]);
+        for i=1:index-1
+            A[i,index] = A[i,index] = sum(mw[:,:,index].* spots[:,:,i])
+        end
+    end
+    return inv(A)*b
 end
 end
