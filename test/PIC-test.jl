@@ -27,12 +27,12 @@ lmod = LensletModel(λ0,laser.nλ-1,bbox);
 Cinit = [[ 6.2 10 0 0 ]; [20 100 0 0]]
 UpdateDispModel(lmod.dmodel,Cinit)
 limage = LensletLaserImage(lmod,laser)
-heatmap(limage)
 
 ldata = view(data, lmod.bbox);
 lweight = view(weight, lmod.bbox);
 lkl = LikelihoodIFS(lmod,laser, ldata,lweight);
 cost(x::Vector{Float64}) = lkl(x)::Float64
 
+#xinit = vcat([a0[:],fwhm0[:],Cinit[:]]...);
 xinit = vcat([a0[:],fwhm0[:],Cinit[:]]...);
 xopt = vmlmb(cost, xinit; verb=50, ftol=(0.0,0),gtol = (0.0,0));
