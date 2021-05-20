@@ -54,7 +54,7 @@ atab = Array{Union{Float64,Missing}}(missing,3,lensletnumber);
 fwhmtab = Array{Union{Float64,Missing}}(missing,3,lensletnumber);
 ctab = Array{Union{Float64,Missing}}(missing,2,3,lensletnumber);
 p = Progress(lensletnumber; showspeed=true)
-Threads.@threads for i in findall(valid)[1:10]
+Threads.@threads for i in findall(valid)
     bbox = round(Int, BoundingBox(cx0[i,1]-dxmin, cx0[i,1]+dxmax, cy0[i,1]-dymin, cy0[i,1]+dymax));
 
     lenslettab[i] = LensletModel(λ0,nλ-1, bbox);
