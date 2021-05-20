@@ -13,6 +13,7 @@ using FITSIO, ProgressMeter
 λ3 = 1309.37e-9# laser 3
 λ4 = 1545.10e-9  # laser 4
 λlaser = [λ1,λ2,λ3]
+nλ = length(λlaser)
 λ0 = mean(λlaser)# reference
 wavelengthrange = LinRange(850e-9,1600e-9,50); # coarse wavelength range of the instrument
 
@@ -35,7 +36,6 @@ laserData =  read(FITS("/Users/ferreol/Data/SPHERE/HR_4796-HD_95086/IFS_calib_wa
 badpix = Float64.(read(FITS("/Users/ferreol/Data/SPHERE/HR_4796-HD_95086/IFS_BP_corrected.fits")[1]))
 ainit = [990. , 690. , 310.];
 fwhminit = [2.3, 2.4 , 2.7];
-laser =  LaserModel(λlaser,ainit,fwhminit);
 
 largeur = 4;
 hauteur = 44;
@@ -54,22 +54,20 @@ atab = Array{Union{Float64,Missing}}(missing,3,lensletnumber);
 fwhmtab = Array{Union{Float64,Missing}}(missing,3,lensletnumber);
 ctab = Array{Union{Float64,Missing}}(missing,2,3,lensletnumber);
 p = Progress(lensletnumber; showspeed=true)
-Threads.@threads for i in findall(valid)
+Threads.@threads for i in findall(valid)[1:10]
     bbox = round(Int, BoundingBox(cx0[i,1]-dxmin, cx0[i,1]+dxmax, cy0[i,1]-dymin, cy0[i,1]+dymax));
 
-    lenslettab[i] = LensletModel(λ0,laser.nλ-1, bbox);
+    lenslettab[i] = LensletModel(λ0,nλ-1, bbox);
     Cinit= [ [cx0[i,1] mcx1 mcx2]; [cy0[i,1] mcy1 mcy2] ];
- #   xinit = vcat([ainit[:],fwhminit[:],Cinit[:]]...);
     xinit = vcat([fwhminit[:],Cinit[:]]...);
     laserDataView = view(laserData, bbox);
     badpixview = view(badpix,bbox)
-    lkl = LikelihoodIFS(lenslettab[i],deepcopy(laser), laserDataView,badpixview);
+    lkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,badpixview);
     cost(x::Vector{Float64}) = lkl(x)
     try
         xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500);
-      #  (aopt,fwhmopt,copt) = (xopt[1:(laser.nλ)],xopt[(laser.nλ+1):(2*laser.nλ)],reshape(xopt[(2*laser.nλ+1):(4*laser.nλ)],2,:));
-        (fwhmopt,copt) = (xopt[1:(laser.nλ)],reshape(xopt[(laser.nλ+1):(3*laser.nλ)],2,:));
-       # atab[:,i] = aopt
+        (fwhmopt,copt) = (xopt[1:(nλ)],reshape(xopt[(nλ+1):(3*nλ)],2,:));
+        atab[:,i] = lkl.amplitude;
         fwhmtab[:,i] = fwhmopt
         ctab[:,:,i] = copt
     catch
