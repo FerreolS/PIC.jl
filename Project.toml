@@ -1,0 +1,12 @@
+name = "PIC"
+uuid = "7608847e-9cad-4612-9fc6-33c51f3bd25d"
+authors = ["Ferreol Soulez<ferreol.soulez@univ-lyon1.fr>"]
+version = "0.1.0"
+
+[deps]
+EasyFITS = "a977f4a2-36a7-4172-89e7-19c2726f82e5"
+FITSIO = "525bcba6-941b-5504-bd06-fd0dc1a4d2eb"
+OptimPackNextGen = "080ffe24-4a27-4ab0-ad71-7b624e73ef8d"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+TwoDimensional = "1907e7ba-7586-4310-a2ba-dd01462aeb50"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
