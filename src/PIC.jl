@@ -5,7 +5,6 @@
 
 module PIC
 
-using TwoDimensional, Zygote, OptimPackNextGen
 
 export
     DispModel,
@@ -14,7 +13,8 @@ export
     LikelihoodIFS,
     LensletLaserImage,
     UpdateDispModel,
-    UpdateLaserModel
+    UpdateLaserModel,
+    fitSpectralLaw
 
 include("SphereIFSCalib.jl")
 
@@ -25,6 +25,7 @@ import .SphereIFSCalib:
     LikelihoodIFS,
     LensletLaserImage,
     UpdateDispModel,
-    UpdateLaserModel
+    UpdateLaserModel,
+    fitSpectralLaw
 
 end # module

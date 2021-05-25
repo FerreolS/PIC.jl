@@ -1,7 +1,7 @@
 module SphereIFSCalib
 
-using Zygote, StaticArrays
-using TwoDimensional
+using Zygote, StaticArrays,StatsBase
+using TwoDimensional, ProgressMeter, OptimPackNextGen
 
 
 """
@@ -453,6 +453,7 @@ function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Flo
         (mx, my)  = self.model.dmodel(λ);  # center of the index-th Gaussian spot
         r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
         m[:,:,index] = GaussianModel2.( fwhm[index], r);
+        #m[:,:,index] = SimpleGauss.(rx, mx, fwhm[index]) .* SimpleGauss.(ry, my, fwhm[index])';
      end
     spots = copy(m)
     Zygote.@ignore  self.amplitude .= updateAmplitude(self.nλ,spots,self.data,self.weight)
@@ -463,13 +464,40 @@ function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Flo
     return Float64.(sum(self.weight .* (self.data .-sumspot).^2))
  end
 
+ SimpleGauss(x,center::Float64,fwhm::Float64) = exp(-(x-center)^2 / (2 * (fwhm * Float64(1) / (2 * sqrt(2 * log(2.))) )^2));
+
+#=  function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
+    # @assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
+     UpdateDispModel(self.model.dmodel, C);
+     bbox = self.model.bbox;
+    (rx,ry) = axes(bbox) # extracting bounding box LinRange
+    r = [rx,ry];
+    nx =length(rx);
+    ny =length(ry);
+    mx = reinterpret(reshape, Float64, self.model.dmodel.(self.wavelengths))
+    p =   (broadcast((a,b,c) ->SimpleGauss.(a,b,c) ,r,mx,reshape(fwhm,(1,self.nλ))));
+    spots =  reshape(hcat(broadcast((a,b) -> a*b',p[1,1:self.nλ],p[2,1:self.nλ])...),nx,ny,self.nλ)
+    Zygote.@ignore  self.amplitude .= updateAmplitude(self.nλ,spots,self.data,self.weight)
+    sumspot =   zeros(Float64,size(round(bbox)));
+    @inbounds for i =1:self.nλ
+        sumspot += self.amplitude[i] *spots[:,:,i]
+    end
+    return Float64.(sum(self.weight .* (self.data .-sumspot).^2))
+ end =#
+
  """
- updateAmplitude(nλ,model,data,W)
-return the amplitude `a` according the the model `model`, the data and the precision `W`
-such that
-`a = argmin_a || a*model - data||^2_W
+        updateAmplitude(nλ,m,d,W)
+
+    return the `nλ` amplitudes `a` according the the model `m`, the data and the precision `W`
+    such that
+    `a = argmin_a || a*m - D||^2_W`
+    where
+    * `nλ` : is the number of spots in the model
+    * `m`:  is the model composed of `nλ` images of spots
+    * `d`:  is the data
+    * `W`: is the precision (inverse variance) of the data
 """
- Zygote.@nograd  function updateAmplitude(N::Int,spots::AbstractArray{T},data::AbstractArray{T},weight::AbstractArray{T}) where T<:AbstractFloat
+function updateAmplitude(N::Int,spots::AbstractArray{T},data::AbstractArray{T},weight::AbstractArray{T}) where T<:AbstractFloat
     A = @MMatrix zeros(Float64,N,N)
     b = @MVector zeros(Float64,N)
     mw = similar(spots);
@@ -482,5 +510,73 @@ such that
         end
     end
     return inv(A)*b
+end
+
+"""
+        (lenslettab, atab, fwhmtab,ctab) = fitSpectralLaw(laserData,weights,λlaser,lensletsize,cx0,cy0,cinit,fwhminit;validlenslets=true);
+
+    fits the spectral of all lenslet identified as valid in the `valid` vector.
+    * `laserData` : is the laser calibration data
+    * `weight`:  is the precision (inverse variance) of the data
+    * `valid`:  a boolean vector indicating valid lenslet
+    * `λlaser`: is the vector of the wavelength of the lasers
+    * `lensletsize` :  is a 4 Int tuple giving the size of lenslet on the detector
+    * `position`: is the a priori position of the lenslets
+    * `cxinit`: is the initial vector of the spectral law coefficients along x
+    * `cxinit`: is the initial vector of the spectral law coefficients along y
+    * `fwhminit`: is the initial vector of full width at half maximum of the spots
+    * `validlenslets`: is an optionnal vector indicating the already known invalid lenslets
+"""
+function fitSpectralLaw(laserdata::Matrix{T},
+                        weigths::Matrix{T},
+                        λlaser::Array{Float64,1},
+                        lensletsize::NTuple{4, Int},
+                        position::Matrix{Float64},
+                        cxinit::Vector{Float64},
+                        cyinit::Vector{Float64},
+                        fwhminit::Array{Float64,1};
+                        validlenslets::AbstractArray{Bool,1}=[true]
+                        ) where T<:AbstractFloat
+
+    numberoflenslet = size(position)[1]
+    if length(validlenslets)==1
+        validlenslets = true(numberoflenslet)
+    else
+        numberoflenslet = min(length(validlenslets) ,numberoflenslet)
+    end
+
+    nλ = length(λlaser)
+    λ0 = mean(λlaser)# reference
+    @assert length(fwhminit) == nλ
+
+    (dxmin, dxmax,dymin,dymax) = lensletsize
+    lenslettab = Array{Union{LensletModel,Missing}}(missing,numberoflenslet);
+    atab = Array{Union{Float64,Missing}}(missing,3,numberoflenslet);
+    fwhmtab = Array{Union{Float64,Missing}}(missing,3,numberoflenslet);
+    ctab = Array{Union{Float64,Missing}}(missing,2,3,numberoflenslet);
+    p = Progress(numberoflenslet; showspeed=true)
+    Threads.@threads for i in findall(validlenslets)
+        bbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
+
+        lenslettab[i] = LensletModel(λ0,nλ-1, bbox);
+        Cinit= [ [position[i,1] cxinit...]; [position[i,2] cyinit...] ];
+        xinit = vcat([fwhminit[:],Cinit[:]]...);
+        laserDataView = view(laserdata, bbox);
+        weightView = view(weigths,bbox)
+        lkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,weightView);
+        cost(x::Vector{Float64}) = lkl(x)
+        try
+            xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500);
+            (fwhmopt,copt) = (xopt[1:(nλ)],reshape(xopt[(nλ+1):(3*nλ)],2,:));
+            atab[:,i] = lkl.amplitude;
+            fwhmtab[:,i] = fwhmopt
+            ctab[:,:,i] = copt
+        catch
+            continue
+        end
+        next!(p)
+    end
+    ProgressMeter.finish!(p);
+    return (lenslettab, atab, fwhmtab,ctab);
 end
 end
