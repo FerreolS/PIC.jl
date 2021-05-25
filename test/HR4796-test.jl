@@ -5,16 +5,16 @@
 
 using PIC
 
-using Plots, StatsBase,Statistics, TwoDimensional,OptimPackNextGen, DelimitedFiles
-using FITSIO, ProgressMeter
+using Plots, StatsBase,Statistics, DelimitedFiles
+using FITSIO
 # wavelengths
-λ1 = 987.72e-9# laser 1
-λ2 = 1123.71e-9# laser 2
-λ3 = 1309.37e-9# laser 3
-λ4 = 1545.10e-9  # laser 4
-λlaser = [λ1,λ2,λ3]
-nλ = length(λlaser)
-λ0 = mean(λlaser)# reference
+λ1 = 987.72e-9;# laser 1
+λ2 = 1123.71e-9;# laser 2
+λ3 = 1309.37e-9;# laser 3
+λ4 = 1545.10e-9;  # laser 4
+λlaser = [λ1,λ2,λ3];
+nλ = length(λlaser);
+λ0 = mean(λlaser);# reference
 wavelengthrange = LinRange(850e-9,1600e-9,50); # coarse wavelength range of the instrument
 
 coeffx = readdlm("/Users/ferreol/Data/SPHERE/HR_4796-HD_95086/coef_pol_x.txt", header = false)
@@ -27,6 +27,10 @@ cy0 = coeffy[:,1].+ 1025;
 mcy1 = median(coeffy[:,2])*λ0*1e6;
 mcy2 = median(coeffy[:,3])*(λ0*1e6)^2;
 
+
+position = hcat(cx0, cy0)
+cxinit = [mcx1;mcx2];
+cyinit = [mcy1;mcy2];
 lensletnumber= length(cx0)
 
 
@@ -34,21 +38,23 @@ lensletnumber= length(cx0)
 lampData =  read(FITS("/Users/ferreol/Data/SPHERE/HR_4796-HD_95086/IFS_calib_spec_corrected.fits")[1])
 laserData =  read(FITS("/Users/ferreol/Data/SPHERE/HR_4796-HD_95086/IFS_calib_wave_corrected.fits")[1])
 badpix = Float64.(read(FITS("/Users/ferreol/Data/SPHERE/HR_4796-HD_95086/IFS_BP_corrected.fits")[1]))
-ainit = [990. , 690. , 310.];
+
 fwhminit = [2.3, 2.4 , 2.7];
 
-largeur = 4;
-hauteur = 44;
-
-nb_fit = 5 #test sur quelques lenslets
-
+#largeur = 4;
+#hauteur = 44;
 dxmin = 2;
 dxmax = 2;
 dymin = 21;
 dymax = 18;
+lensletsize = (dxmin, dxmax,dymin,dymax);
 
 valid = ((cx0 .- dxmin).>0) .&  ((cx0 .+ dxmax).<2048) .&  ((cy0 .- dymin).>0) .&  ((cy0 .+ dymax).<2048);
 
+
+(lenslettab, atab, fwhmtab,ctab) = fitSpectralLaw(laserData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit;validlenslets=valid);
+
+#=
 lenslettab = Array{Union{LensletModel,Missing}}(missing,lensletnumber);
 atab = Array{Union{Float64,Missing}}(missing,3,lensletnumber);
 fwhmtab = Array{Union{Float64,Missing}}(missing,3,lensletnumber);
@@ -75,4 +81,4 @@ Threads.@threads for i in findall(valid)
     end
     next!(p)
 end
-ProgressMeter.finish!(p)
+ProgressMeter.finish!(p)=#
