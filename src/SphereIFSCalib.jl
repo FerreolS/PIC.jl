@@ -466,6 +466,25 @@ function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Flo
 
  SimpleGauss(x,center::Float64,fwhm::Float64) = exp(-(x-center)^2 / (2 * (fwhm * Float64(1) / (2 * sqrt(2 * log(2.))) )^2));
 
+
+#= function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
+    # @assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
+    UpdateDispModel(self.model.dmodel, C);
+    bbox = self.model.bbox;
+    (rx,ry) = axes(bbox) # extracting bounding box range
+    spotpos =  self.model.dmodel.(self.wavelengths);
+
+   # spots  = [SimpleGauss(x,spotpos[index][1],fwhm[index]).* SimpleGauss(y, spotpos[index][2], fwhm[index]) for x in rx, y in ry, index in 1:self.nλ]
+    spots  = [GaussianModel2(fwhm[index], ((x -spotpos[index][1])^2) + ((y-spotpos[index][2])^2)) for x in rx, y in ry, index in 1:self.nλ]
+
+    Zygote.@ignore  self.amplitude .= updateAmplitude(self.nλ,spots,self.data,self.weight)
+    sumspot =   zeros(Float64,size(round(bbox)));
+    @inbounds for i =1:self.nλ
+        sumspot += self.amplitude[i] *spots[:,:,i]
+    end
+    return Float64.(sum(self.weight .* (self.data .-sumspot).^2))
+ end =#
+
 #=  function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
     # @assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
      UpdateDispModel(self.model.dmodel, C);
