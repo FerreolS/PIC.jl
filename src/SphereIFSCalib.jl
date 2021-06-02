@@ -570,9 +570,9 @@ function fitSpectralLaw(laserdata::Matrix{T},
 
     (dxmin, dxmax,dymin,dymax) = lensletsize
     lenslettab = Array{Union{LensletModel,Missing}}(missing,numberoflenslet);
-    atab = Array{Union{Float64,Missing}}(missing,3,numberoflenslet);
-    fwhmtab = Array{Union{Float64,Missing}}(missing,3,numberoflenslet);
-    ctab = Array{Union{Float64,Missing}}(missing,2,3,numberoflenslet);
+    atab = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
+    fwhmtab = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
+    ctab = Array{Union{Float64,Missing}}(missing,2,nλ,numberoflenslet);
     p = Progress(numberoflenslet; showspeed=true)
     Threads.@threads for i in findall(validlenslets)
         bbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
@@ -584,15 +584,16 @@ function fitSpectralLaw(laserdata::Matrix{T},
         weightView = view(weigths,bbox)
         lkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,weightView);
         cost(x::Vector{Float64}) = lkl(x)
+        local xopt
         try
             xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500);
-            (fwhmopt,copt) = (xopt[1:(nλ)],reshape(xopt[(nλ+1):(3*nλ)],2,:));
-            atab[:,i] = lkl.amplitude;
-            fwhmtab[:,i] = fwhmopt
-            ctab[:,:,i] = copt
         catch
             continue
         end
+        (fwhmopt,copt) = (xopt[1:(nλ)],reshape(xopt[(nλ+1):(3*nλ)],2,:));
+        atab[:,i] = lkl.amplitude;
+        fwhmtab[:,i] = fwhmopt
+        ctab[:,:,i] = copt
         next!(p)
     end
     ProgressMeter.finish!(p);
