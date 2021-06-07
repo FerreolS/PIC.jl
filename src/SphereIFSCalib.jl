@@ -228,8 +228,8 @@ Compute the value at position sqrt(x) 1D centered Gaussian
 
 Equivalent to `GaussianModel(A, fwhm, sqrt(x))`
 """
-function GaussianModel2(A::Float64, fwhm::Float64, x::AbstractFloat)
-    local fwhm2sigma = Float64(1) / (2 * sqrt(2 * log(2.)))
+function GaussianModel2(A, fwhm::T, x::T) where (T<:AbstractFloat)
+    local fwhm2sigma = T(1 / (2 * sqrt(2 * log(2.))))
     return A * exp(-x / (2 * (fwhm * fwhm2sigma )^2));
 end
 
@@ -242,8 +242,8 @@ Compute the value at position sqrt(r) 1D centered Gaussian
 
 Equivalent to `GaussianModel(1.,fwhm, sqrt.(x))`
 """
-function GaussianModel2(fwhm::Float64, x::AbstractArray)
-    local fwhm2sigma = Float64(1) / (2 * sqrt(2 * log(2.)))
+function GaussianModel2(fwhm::T, x::AbstractArray{T})where (T<:AbstractFloat)
+    local fwhm2sigma = T(1 / (2 * sqrt(2 * log(2.))))
     return exp.(-x ./ (2 * (fwhm * fwhm2sigma )^2));
 end
 
@@ -256,8 +256,8 @@ Compute the value at position sqrt(r) 1D centered Gaussian
 
 Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
 """
-function GaussianModel2(fwhm::Float64, x::AbstractFloat)
-    local fwhm2sigma = Float64(1) / (2 * sqrt(2 * log(2.)))
+function GaussianModel2(fwhm::T, x::T) where (T<:AbstractFloat)
+    local fwhm2sigma =T(1 / (2 * sqrt(2 * log( 2))))
     return exp(-x / (2 * (fwhm * fwhm2sigma )^2));
 end
 
@@ -273,8 +273,8 @@ Compute inplace the value at position sqrt(r) 1D centered Gaussian
 
 Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
 """
-function GaussianModel2!(ret::AbstractArray{T},fwhm::Float64, x::AbstractArray{T}) where (T<:AbstractFloat)
-        ret .= exp.(-x ./ (2 * (fwhm * Float64(1) / (2 * sqrt(2 * log(2.))) )^2));
+function GaussianModel2!(ret::AbstractArray{T},fwhm, x::AbstractArray{T}) where (T<:AbstractFloat)
+        ret .= exp.(-x ./ T(2 * (fwhm * 1 / (2 * sqrt(2 * log(2.))) )^2));
         nothing
 end
 
