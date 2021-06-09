@@ -522,6 +522,7 @@ function updateAmplitude(N::Int,spots::AbstractArray{T},data::AbstractArray{T},w
     b = @MVector zeros(Float64,N+1)
     mw = similar(spots);
     b[1] = sum(weight.*data);
+    A[1,1] = sum(x->x^2,weight);
      for index=1:N
         mw[:,:,index] .=  spots[:,:,index].* weight ;
         b[index+1] = sum(mw[:,:,index].* data );
