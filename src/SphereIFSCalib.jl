@@ -395,7 +395,7 @@ struct LikelihoodIFS{T<:AbstractFloat}
         @assert nλ > model.dmodel.order " the order of the law must be less than the number of laser"
         @assert size(data) == size(weight)
         spots = zeros(Float64,size(round(model.bbox))...,nλ)
-        amplitude =  zeros(Float64,nλ)
+        amplitude =  zeros(Float64,nλ+1)
         return new{T}(nλ,model,wavelengths,data, weight,spots,amplitude)
     end
     # Inner constructor provided to force using outer constructors.
@@ -457,9 +457,10 @@ function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Flo
      end
     spots = copy(m)
     Zygote.@ignore  self.amplitude .= updateAmplitude(self.nλ,spots,self.data,self.weight)
-    sumspot =   zeros(Float64,size(round(bbox)));
-    @inbounds for i =1:self.nλ
-        sumspot += self.amplitude[i] *spots[:,:,i]
+    sumspot = Array{Float64, 2}(undef,size(round(bbox)))
+    fill!(sumspot ,  self.amplitude[1]);
+    for i =1:self.nλ
+        sumspot += self.amplitude[i+1] *spots[:,:,i]
     end
     return Float64.(sum(self.weight .* (self.data .-sumspot).^2))
  end
@@ -517,15 +518,17 @@ function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Flo
     * `W`: is the precision (inverse variance) of the data
 """
 function updateAmplitude(N::Int,spots::AbstractArray{T},data::AbstractArray{T},weight::AbstractArray{T}) where T<:AbstractFloat
-    A = @MMatrix zeros(Float64,N,N)
-    b = @MVector zeros(Float64,N)
+    A = @MMatrix zeros(Float64,N+1,N+1)
+    b = @MVector zeros(Float64,N+1)
     mw = similar(spots);
-    @inbounds for index=1:N
+    b[1] = sum(weight.*data);
+     for index=1:N
         mw[:,:,index] .=  spots[:,:,index].* weight ;
-        b[index] = sum(mw[:,:,index].* data );
-        A[index,index] = sum(mw[:,:,index].* spots[:,:,index]);
+        b[index+1] = sum(mw[:,:,index].* data );
+        A[index+1,index+1] = sum(mw[:,:,index].* spots[:,:,index]);
+        A[1,index+1] = A[index+1,1] = sum(mw[:,:,index])
         for i=1:index-1
-            A[i,index] = A[i,index] = sum(mw[:,:,index].* spots[:,:,i])
+            A[i+1,index+1] = A[i+1,index+1] = sum(mw[:,:,index].* spots[:,:,i])
         end
     end
     return inv(A)*b
@@ -570,18 +573,18 @@ function fitSpectralLaw(laserdata::Matrix{T},
 
     (dxmin, dxmax,dymin,dymax) = lensletsize
     lenslettab = Array{Union{LensletModel,Missing}}(missing,numberoflenslet);
-    atab = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
+    atab = Array{Union{Float64,Missing}}(missing,nλ+1,numberoflenslet);
     fwhmtab = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
     ctab = Array{Union{Float64,Missing}}(missing,2,nλ,numberoflenslet);
     p = Progress(numberoflenslet; showspeed=true)
     Threads.@threads for i in findall(validlenslets)
-        bbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
+        lensletbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
 
-        lenslettab[i] = LensletModel(λ0,nλ-1, bbox);
+        lenslettab[i] = LensletModel(λ0,nλ-1, lensletbox);
         Cinit= [ [position[i,1] cxinit...]; [position[i,2] cyinit...] ];
         xinit = vcat([fwhminit[:],Cinit[:]]...);
-        laserDataView = view(laserdata, bbox);
-        weightView = view(weigths,bbox)
+        laserDataView = view(laserdata, lensletbox);
+        weightView = view(weigths,lensletbox)
         lkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,weightView);
         cost(x::Vector{Float64}) = lkl(x)
         local xopt
