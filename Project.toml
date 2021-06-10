@@ -4,6 +4,7 @@ authors = ["Ferreol Soulez<ferreol.soulez@univ-lyon1.fr>"]
 version = "0.1.0"
 
 [deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 EasyFITS = "a977f4a2-36a7-4172-89e7-19c2726f82e5"
 FITSIO = "525bcba6-941b-5504-bd06-fd0dc1a4d2eb"
 OptimPackNextGen = "080ffe24-4a27-4ab0-ad71-7b624e73ef8d"
