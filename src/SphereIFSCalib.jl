@@ -394,10 +394,8 @@ struct LikelihoodIFS{T<:AbstractFloat}
         nλ =length(wavelengths);
         @assert nλ > model.dmodel.order " the order of the law must be less than the number of laser"
         @assert size(data) == size(weight)
-        sz = size(round(model.bbox))
-        spots = zeros(Float64,sz...,nλ+1)
-        spots[:,:,1] .= ones(sz[1]) * collect(range(-1,1,length=sz[2]))';
-        amplitude =  zeros(Float64,nλ+2)
+        spots = zeros(Float64,size(round(model.bbox))...,nλ)
+        amplitude =  zeros(Float64,nλ+1)
         return new{T}(nλ,model,wavelengths,data, weight,spots,amplitude)
     end
     # Inner constructor provided to force using outer constructors.
@@ -408,10 +406,8 @@ struct LikelihoodIFS{T<:AbstractFloat}
         nλ =length(wavelengths);
         #@assert laser.nλ == N
         @assert nλ > model.dmodel.order " the order of the law must be less than the number of laser"
-        sz = size(round(model.bbox))
-        spots = zeros(Float64,sz...,nλ+1)
-        spots[:,:,1] .= ones(sz[1]) * collect(range(-1,1,length=sz[2]))';
-        amplitude =  zeros(Float64,nλ+2)
+        spots = zeros(Float64,size(round(model.bbox))...,nλ)
+        amplitude =  zeros(Float64,nλ+1)
         return new{T}(nλ,model,wavelengths,data, weight*ones(1,1),spots,amplitude)
     end
 end
@@ -453,18 +449,17 @@ function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Flo
      bbox = self.model.bbox;
      (rx,ry) = axes(bbox) # extracting bounding box range
      m = Zygote.Buffer(self.spots);
-     m[:,:,1] = self.spots[:,:,1]
      @inbounds for (index, λ) in enumerate(self.wavelengths)  # For all laser
         (mx, my)  = self.model.dmodel(λ);  # center of the index-th Gaussian spot
         r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
-        m[:,:,index+1] = GaussianModel2.( fwhm[index], r);
+        m[:,:,index] = GaussianModel2.( fwhm[index], r);
         #m[:,:,index] = SimpleGauss.(rx, mx, fwhm[index]) .* SimpleGauss.(ry, my, fwhm[index])';
      end
     spots = copy(m)
-    Zygote.@ignore  self.amplitude .= updateAmplitude(self.nλ+1,spots,self.data,self.weight)
+    Zygote.@ignore  self.amplitude .= updateAmplitude(self.nλ,spots,self.data,self.weight)
     sumspot = Array{Float64, 2}(undef,size(round(bbox)))
     fill!(sumspot ,  self.amplitude[1]);
-    for i =1:self.nλ+1
+    for i =1:self.nλ
         sumspot += self.amplitude[i+1] *spots[:,:,i]
     end
     return Float64.(sum(self.weight .* (self.data .-sumspot).^2))
@@ -579,7 +574,7 @@ function fitSpectralLaw(laserdata::Matrix{T},
 
     (dxmin, dxmax,dymin,dymax) = lensletsize
     lenslettab = Array{Union{LensletModel,Missing}}(missing,numberoflenslet);
-    atab = Array{Union{Float64,Missing}}(missing,nλ+2,numberoflenslet);
+    atab = Array{Union{Float64,Missing}}(missing,nλ+1,numberoflenslet);
     fwhmtab = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
     ctab = Array{Union{Float64,Missing}}(missing,2,nλ,numberoflenslet);
     p = Progress(numberoflenslet; showspeed=true)
