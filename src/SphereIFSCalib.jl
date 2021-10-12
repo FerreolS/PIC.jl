@@ -219,7 +219,7 @@ function GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
 end
 
 """
-    GaussianModel2(A::Float64, fwhm::Float64, x::AbstractFloat)
+    GaussianModel2(A::Float64, fwhm::Float64, x::Real)
 
 Compute the value at position sqrt(x) 1D centered Gaussian
 * `A` : amplitude at x = 0
@@ -228,7 +228,7 @@ Compute the value at position sqrt(x) 1D centered Gaussian
 
 Equivalent to `GaussianModel(A, fwhm, sqrt(x))`
 """
-function GaussianModel2(A, fwhm::T, x::T) where (T<:AbstractFloat)
+function GaussianModel2(A, fwhm::T, x::T) where (T<:Real)
     local fwhm2sigma = T(1 / (2 * sqrt(2 * log(2.))))
     return A * exp(-x / (2 * (fwhm * fwhm2sigma )^2));
 end
@@ -242,7 +242,7 @@ Compute the value at position sqrt(r) 1D centered Gaussian
 
 Equivalent to `GaussianModel(1.,fwhm, sqrt.(x))`
 """
-function GaussianModel2(fwhm::T, x::AbstractArray{T})where (T<:AbstractFloat)
+function GaussianModel2(fwhm::T, x::AbstractArray{T})where (T<:Real)
     local fwhm2sigma = T(1 / (2 * sqrt(2 * log(2.))))
     return exp.(-x ./ (2 * (fwhm * fwhm2sigma )^2));
 end
@@ -256,7 +256,7 @@ Compute the value at position sqrt(r) 1D centered Gaussian
 
 Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
 """
-function GaussianModel2(fwhm::T, x::T) where (T<:AbstractFloat)
+function GaussianModel2(fwhm::T, x::T) where (T<:Real)
     local fwhm2sigma =T(1 / (2 * sqrt(2 * log( 2))))
     return exp(-x / (2 * (fwhm * fwhm2sigma )^2));
 end
@@ -273,7 +273,7 @@ Compute inplace the value at position sqrt(r) 1D centered Gaussian
 
 Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
 """
-function GaussianModel2!(ret::AbstractArray{T},fwhm, x::AbstractArray{T}) where (T<:AbstractFloat)
+function GaussianModel2!(ret::AbstractArray{T},fwhm, x::AbstractArray{T}) where (T<:Real)
         ret .= exp.(-x ./ T(2 * (fwhm * 1 / (2 * sqrt(2 * log(2.))) )^2));
         nothing
 end
@@ -378,7 +378,7 @@ Build the likelihood function for a given lenslet
 * `data` : data
 * `weight`: precision (ie inverse variance) of the data
 """
-struct LikelihoodIFS{T<:AbstractFloat}
+struct LikelihoodIFS{T<:Real}
     nλ::Int
     model::LensletModel
     wavelengths::Array{T,1}
@@ -390,7 +390,7 @@ struct LikelihoodIFS{T<:AbstractFloat}
     function LikelihoodIFS{T}(model::LensletModel,
         wavelengths::Array{T,1},
         data::Array{T,2},
-        weight::Array{T,2}) where {T<:AbstractFloat}
+        weight::Array{T,2}) where {T<:Real}
         nλ =length(wavelengths);
         @assert nλ > model.dmodel.order " the order of the law must be less than the number of laser"
         @assert size(data) == size(weight)
@@ -402,7 +402,7 @@ struct LikelihoodIFS{T<:AbstractFloat}
     function LikelihoodIFS{T}(model::LensletModel,
         wavelengths::Array{T,1},
         data::Array{T,2},
-        weight::T) where {T<:AbstractFloat}
+        weight::T) where {T<:Real}
         nλ =length(wavelengths);
         #@assert laser.nλ == N
         @assert nλ > model.dmodel.order " the order of the law must be less than the number of laser"
@@ -438,27 +438,28 @@ end
     xopt = vmlmb(lkl, xinit; verb=50)
     ```
 """
-function  (self::LikelihoodIFS)(x::Vector{Float64})::Float64
-    (fwhm::Vector{Float64},c::Matrix{Float64}) = (x[1:(self.nλ)],reshape(x[(self.nλ+1):(3*self.nλ)],2,:));
+function  (self::LikelihoodIFS)(x::Vector{T})::Float64 where (T<:Real)
+    (fwhm::Vector{T},c::Matrix{T}) = (x[1:(self.nλ)],reshape(x[(self.nλ+1):(3*self.nλ)],2,:));
     self(fwhm,c)
 end
 
-function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
-    # @assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
-     UpdateDispModel(self.model.dmodel, C);
-     bbox = self.model.bbox;
-     (rx,ry) = axes(bbox) # extracting bounding box range
-     m = Zygote.Buffer(self.spots);
-     @inbounds for (index, λ) in enumerate(self.wavelengths)  # For all laser
+function  (self::LikelihoodIFS)(fwhm::Array{T,1},C::Array{T,2})::Float64 where (T<:Real)
+    #@assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
+    UpdateDispModel(self.model.dmodel, C);
+    bbox = self.model.bbox;
+    (rx,ry) = axes(bbox) # extracting bounding box range
+    m = Zygote.Buffer(self.spots);
+    @inbounds for (index, λ) in enumerate(self.wavelengths)  # For all laser
         (mx, my)  = self.model.dmodel(λ);  # center of the index-th Gaussian spot
         r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
         m[:,:,index] = GaussianModel2.( fwhm[index], r);
         #m[:,:,index] = SimpleGauss.(rx, mx, fwhm[index]) .* SimpleGauss.(ry, my, fwhm[index])';
-     end
+    end
     spots = copy(m)
     Zygote.@ignore  self.amplitude .= updateAmplitude(self.nλ,spots,self.data,self.weight)
-    sumspot = Array{Float64, 2}(undef,size(round(bbox)))
-    fill!(sumspot ,  self.amplitude[1]);
+    #sumspot = Array{T, 2}(undef,size(round(bbox)))
+    #Zygote.@ignore  fill!(sumspot ,  self.amplitude[1]);
+    sumspot = ones(T,size(round(bbox))).*self.amplitude[1];
     for i =1:self.nλ
         sumspot += self.amplitude[i+1] *spots[:,:,i]
     end
@@ -517,7 +518,7 @@ function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Flo
     * `d`:  is the data
     * `W`: is the precision (inverse variance) of the data
 """
-function updateAmplitude(N::Int,spots::AbstractArray{T},data::AbstractArray{T},weight::AbstractArray{T}) where T<:AbstractFloat
+function updateAmplitude(N::Int,spots::AbstractArray{T},data::AbstractArray{T},weight::AbstractArray{T})  where T<:Real
     A = @MMatrix zeros(T,N+1,N+1)
     b = @MVector zeros(T,N+1)
     mw = similar(spots);
@@ -532,7 +533,7 @@ function updateAmplitude(N::Int,spots::AbstractArray{T},data::AbstractArray{T},w
             A[i+1,index+1] = A[i+1,index+1] = sum(mw[:,:,index].* spots[:,:,i])
         end
     end
-    return inv(A)*b
+    return T.(inv(A)*b)
 end
 
 """
@@ -551,7 +552,7 @@ end
     * `validlenslets`: is an optionnal vector indicating the already known invalid lenslets
 """
 function fitSpectralLaw(laserdata::Matrix{T},
-                        weigths::Matrix{T},
+                        weights::Matrix{T},
                         λlaser::Array{Float64,1},
                         lensletsize::NTuple{4, Int},
                         position::Matrix{Float64},
@@ -559,7 +560,7 @@ function fitSpectralLaw(laserdata::Matrix{T},
                         cyinit::Vector{Float64},
                         fwhminit::Array{Float64,1};
                         validlenslets::AbstractArray{Bool,1}=[true]
-                        ) where T<:AbstractFloat
+                        ) where T<:Real
 
     numberoflenslet = size(position)[1]
     if length(validlenslets)==1
@@ -585,13 +586,14 @@ function fitSpectralLaw(laserdata::Matrix{T},
         Cinit= [ [position[i,1] cxinit...]; [position[i,2] cyinit...] ];
         xinit = vcat([fwhminit[:],Cinit[:]]...);
         laserDataView = view(laserdata, lensletbox);
-        weightView = view(weigths,lensletbox)
+        weightView = view(weights,lensletbox);
         lkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,weightView);
-        cost(x::Vector{Float64}) = lkl(x)
+        cost(x::Vector{Float64}) = lkl(x);
         local xopt
         try
-            xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500);
+            xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-6),maxeval=500);
         catch
+            println("err")
             continue
         end
         (fwhmopt,copt) = (xopt[1:(nλ)],reshape(xopt[(nλ+1):(3*nλ)],2,:));
