@@ -625,6 +625,8 @@ function fitSpectralLaw(laserdata::Matrix{T},
 
     (dxmin, dxmax,dymin,dymax) = lensletsize
     lenslettab = Array{Union{LensletModel,Missing}}(missing,numberoflenslet);
+    atab = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
+    fwhmtab = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
     distweight = Array{Union{Float64,Missing}}(missing,2048,2048);
     λMap =  Array{Union{Float64,Missing}}(missing,2048,2048);
     p = Progress(numberoflenslet; showspeed=true)
@@ -645,14 +647,15 @@ function fitSpectralLaw(laserdata::Matrix{T},
             @debug "Error on lenslet  $i"
             continue
         end
-
+        atab[:,i] = lkl.amplitude;
+        fwhmtab[:,i] = xopt[1:(nλ)];
         (dist, pixλ) = distanceMap(wavelengthrange,lenslettab[i]);
         view(distweight,lensletbox) .= dist;
         view(λMap,lensletbox) .= pixλ;
         next!(p);
     end
     ProgressMeter.finish!(p);
-    return (lenslettab, distweight, λMap);
+    return (lenslettab, atab, fwhmtab,distweight, λMap);
 end
 
 
