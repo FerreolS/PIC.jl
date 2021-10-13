@@ -119,7 +119,6 @@ The image of a lenslet on the detector is decribed by:
 struct LensletModel
     bbox::BoundingBox{Int}  # Boundingbox of influence of the lenslet on the detector
     dmodel::DispModel       # dispersion model of the lenslet
- #   λlaser::Array{Float64,1}# wavelength of the laser
 end
 
 
@@ -588,16 +587,99 @@ function fitSpectralLaw(laserdata::Matrix{T},
         try
             xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500);
         catch
-            @debug "Error on lenslet n $i"
+            @debug "Error on lenslet  $i"
             continue
         end
         (fwhmopt,copt) = (xopt[1:(nλ)],reshape(xopt[(nλ+1):(3*nλ)],2,:));
         atab[:,i] = lkl.amplitude;
-        fwhmtab[:,i] = fwhmopt
-        ctab[:,:,i] = copt
-        next!(p)
+        fwhmtab[:,i] = fwhmopt;
+        ctab[:,:,i] = copt;
+        next!(p);
     end
     ProgressMeter.finish!(p);
     return (lenslettab, atab, fwhmtab,ctab);
+end
+
+function fitSpectralLaw(laserdata::Matrix{T},
+    weights::Matrix{T},
+    λlaser::Array{Float64,1},
+    lensletsize::NTuple{4, Int},
+    position::Matrix{Float64},
+    cxinit::Vector{Float64},
+    cyinit::Vector{Float64},
+    fwhminit::Array{Float64,1},
+    wavelengthrange::AbstractArray{Float64,1};
+    validlenslets::AbstractArray{Bool,1}=[true]
+    ) where T<:Real
+
+    numberoflenslet = size(position)[1]
+    if length(validlenslets)==1
+        validlenslets = true(numberoflenslet)
+    else
+        numberoflenslet = min(length(validlenslets) ,numberoflenslet)
+    end
+
+    nλ = length(λlaser)
+    λ0 = mean(λlaser)# reference
+    @assert length(fwhminit) == nλ
+
+    (dxmin, dxmax,dymin,dymax) = lensletsize
+    lenslettab = Array{Union{LensletModel,Missing}}(missing,numberoflenslet);
+    distweight = Array{Union{Float64,Missing}}(missing,2048,2048);
+    λMap =  Array{Union{Float64,Missing}}(missing,2048,2048);
+    p = Progress(numberoflenslet; showspeed=true)
+    Threads.@threads for i in findall(validlenslets)
+        lensletbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
+
+        lenslettab[i] = LensletModel(λ0,nλ-1, lensletbox);
+        Cinit= [ [position[i,1] cxinit...]; [position[i,2] cyinit...] ];
+        xinit = vcat([fwhminit[:],Cinit[:]]...);
+        laserDataView = view(laserdata, lensletbox);
+        weightView = view(weights,lensletbox);
+        lkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,weightView);
+        cost(x::Vector{Float64}) = lkl(x);
+        local xopt
+        try
+            xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500);
+        catch
+            @debug "Error on lenslet  $i"
+            continue
+        end
+
+        (dist, pixλ) = distanceMap(wavelengthrange,lenslettab[i]);
+        view(distweight,lensletbox) .= dist;
+        view(λMap,lensletbox) .= pixλ;
+        next!(p);
+    end
+    ProgressMeter.finish!(p);
+    return (lenslettab, distweight, λMap);
+end
+
+
+function distanceMap(wavelengthrange::AbstractArray{Float64,1},
+                    lenslet::LensletModel
+                    )
+    bbox = lenslet.bbox;
+    dist = ones(Float64,size(round(bbox))).*1000;
+    pixλ = ones(Float64,size(round(bbox)));
+    (ax,ay) = axes(bbox)
+    previous_index = 0;
+    for I in CartesianIndices(dist)
+        previous_index = max(1,previous_index-5);
+        for  (index,λ) in enumerate(wavelengthrange[previous_index:end])
+            (mx, my)  = lenslet.dmodel(λ)
+            rx = ax[I[1]]-mx;
+            ry = ay[I[2]]-my;
+            r = sign(rx) * sqrt(rx^2 + ry^2);
+            if abs(r) < abs(dist[I[1],I[2]])
+                dist[I[1],I[2]] = r;
+                pixλ[I[1],I[2]] = λ;
+            else
+                previous_index = previous_index + index-1;
+                break
+            end
+        end
+    end
+    return (dist,pixλ)
 end
 end

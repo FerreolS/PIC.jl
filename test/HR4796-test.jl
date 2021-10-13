@@ -15,7 +15,7 @@ using FITSIO
 λlaser = [λ1,λ2,λ3];
 nλ = length(λlaser);
 λ0 = mean(λlaser);# reference
-wavelengthrange = LinRange(850e-9,1600e-9,50); # coarse wavelength range of the instrument
+wavelengthrange = LinRange(850e-9,1600e-9,10000); # coarse wavelength range of the instrument
 
 coeffx = readdlm("/Users/ferreol/Data/SPHERE/HR_4796-HD_95086/coef_pol_x.txt", header = false)
 cx0 = coeffx[:,1] .+ 1025;
@@ -52,7 +52,8 @@ lensletsize = (dxmin, dxmax,dymin,dymax);
 valid = ((cx0 .- dxmin).>0) .&  ((cx0 .+ dxmax).<2048) .&  ((cy0 .- dymin).>0) .&  ((cy0 .+ dymax).<2048);
 
 
-(lenslettab, atab, fwhmtab,ctab) = fitSpectralLaw(laserData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit;validlenslets=valid);
+#(lenslettab, atab, fwhmtab,ctab) = fitSpectralLaw(laserData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit;validlenslets=valid[1:100]);
+(lenslettab, distweight, λMap) = fitSpectralLaw(laserData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit,wavelengthrange;validlenslets=valid);
 
 #=
 lenslettab = Array{Union{LensletModel,Missing}}(missing,lensletnumber);
