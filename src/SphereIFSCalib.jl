@@ -524,7 +524,7 @@ function updateAmplitude(N::Int,spots::AbstractArray{T},data::AbstractArray{T},w
         b[index] = sum(mw[:,:,index].* data );
         A[index,index] = sum(mw[:,:,index].* spots[:,:,index]);
         for i=1:index-1
-            A[i,index] = A[i,index] = sum(mw[:,:,index].* spots[:,:,i])
+            A[i,index] = A[index,i] = sum(mw[:,:,index].* spots[:,:,i])
         end
     end
     return inv(A)*b
