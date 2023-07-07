@@ -585,8 +585,9 @@ function fitSpectralLaw(laserdata::Matrix{T},
         cost(x::Vector{Float64}) = lkl(x);
         local xopt
         try
-            xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500);
-        catch
+            xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
+        catch e
+            @debug showerror(stdout, e)
             @debug "Error on lenslet  $i"
             continue
         end
@@ -642,8 +643,9 @@ function fitSpectralLaw(laserdata::Matrix{T},
         cost(x::Vector{Float64}) = lkl(x);
         local xopt
         try
-            xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500);
-        catch
+            xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
+        catch e
+            @debug showerror(stdout, e)
             @debug "Error on lenslet  $i"
             continue
         end
