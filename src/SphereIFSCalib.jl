@@ -2,110 +2,8 @@ module SphereIFSCalib
 
 using Zygote, StaticArrays,StatsBase
 using TwoDimensional, ProgressMeter, OptimPackNextGen
-
-
-"""
-    DispModel(λ0::Float64,order::Int32,cx::Array{Float64,1},cy::Array{Float64,1})
-
-The dispersion model giving the position of a wavelength on the detector
-* `λ0` is the reference wavelength
-* `order` is the order of the polynomials
-* `cx` is an array of coefficients of the polynomial along the x axis
-* `cy` is an array of coefficients of the polynomial along the y axis
-"""
-mutable struct DispModel
-    λ0::Float64   # reference wavelength
-    order::Int  # order of the polynomial
-    cx::Array{Float64,1} # coefficients of the polynomial along the x axis
-    cy::Array{Float64,1} # coefficients of the polynomial along the y axis
-end
-
-"""
-    (self::DispModel)(λ::Float64)
-
-compute the position `(x,y)`  of the wavelent `λ`
-according to the dispersion law `DispModel`.
-
-### Example
-```
-D = DispModel(λ0, order, cx, cy);
-(x,y) = D(λ)
-```
-"""
-function (self::DispModel)(λ::Float64)
-    x = self.cx[1];
-    y = self.cy[1];
-    for o in 1:self.order
-        λpo = (( λ - self.λ0)/self.λ0 )^(o)
-        x += self.cx[o + 1]  * λpo;
-        y += self.cy[o + 1]  * λpo;
-    end
-    return (x, y)
-end
-
-"""
-    UpdateDispModel(self::DispModel, C::Array{Float64,2})
-
-Update the coefficients  of the DispModel .
-* `self`: DispModel object
-* `C` : array containing the polynomial coefficients.
-"""
-function UpdateDispModel(self::DispModel, C::Array{Float64,2})
-    @assert size(C)==(2,self.order+1) "coefficients array does not have the right size"
-    self.cx = C[1,:];
-    self.cy = C[2,:];
-    return self
-end
-
-"""
-    LaserModel(nλ::Int,λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::Array{Float64,1})
-
-Model of the laser illumination.
-It consist on:
-* `nλ` the number of laser
-* `λlaser` an array of the wavelengths of the lasers
-* `amplitude` an array of the amplitude of the maximum of the Gaussian spot
-* `fwhm` an array of the full width at half maximum of the Gaussians
-"""
-mutable struct LaserModel
-    nλ::Int
-    λlaser::Array{Float64,1}# wavelength of the laser
-    amplitude::Array{Float64,1}
-    fwhm::Array{Float64,1}
-end
-
-"""
-    LaserModel(λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::Array{Float64,1})
-
-Constructor of the model of the laser illumination.
-It consist on:
-* `λlaser` an array of the wavelengths of the lasers
-* `amplitude` an array of the amplitude of the maximum of each Gaussian spots
-* `fwhm` an array of the full width at half maximum of the Gaussians
-"""
-function LaserModel(λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::Array{Float64,1})
-    nλ = length(λlaser);
-    @assert length(amplitude)==nλ "amplitude vector does not have the right size"
-    @assert length(fwhm)==nλ "fwhm vector does not have the right size"
-    LaserModel(nλ ,λlaser,amplitude,fwhm);
-end
-
-"""
-    UpdateLaserModel(self::LaserModel,A::Array{Float64,1},fwhm::Array{Float64,1})
-
-Update the parameters of the laser model
-* `self` :  LaserModel object
-* `A` : 1D  array of amplitudes of the maximum of each Gaussian spot
-* `fwhm` 1D  array of the full width at half maximum of each Gaussian spot
-
-`A` and `fwhm` must have lenth of `self.nλ`
-"""
-function UpdateLaserModel(self::LaserModel,A::Array{Float64,1},fwhm::Array{Float64,1})
-    @assert length(A)==self.nλ "amplitude vector does not have the right size"
-    @assert length(fwhm)==self.nλ "fwhm vector does not have the right size"
-    self.amplitude = A;
-    self.fwhm = fwhm;
-end
+include("DispModel.jl")
+include("ProfileModel.jl")
 
 
 """
@@ -119,6 +17,7 @@ The image of a lenslet on the detector is decribed by:
 struct LensletModel
     bbox::BoundingBox{Int}  # Boundingbox of influence of the lenslet on the detector
     dmodel::DispModel       # dispersion model of the lenslet
+    profile::ProfileModel   # intensity profile in the lenslet
 end
 
 
@@ -130,48 +29,46 @@ Lenslet model constructor
 * `order` : order of the polynomials
 * `bbox` : bounding box of the lenslet on the detector
 """
-function LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int})
-    cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
-    cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
-    LensletModel(bbox, DispModel(λ0, order, cx, cy))
+function LensletModel(λ0::Float64, disporder::Int, profileorder::Int, bbox::BoundingBox{Int})
+    LensletModel(bbox, DispModel(λ0, disporder), ProfileModel(λ0, profileorder))
 end
 
 
-"""
-    lmod = LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int},cx0::Float64,cy0::Float64)
+# """
+#     lmod = LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int},cx0::Float64,cy0::Float64)
 
-Lenslet model constructor
-* `λ0`  : reference wavelength
-* `order` : order of the polynomials
-* `bbox` : bounding box of the lenslet on the detector
-* `cx0` :
-* `cy0` :
-"""
-function LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int},cx0::Float64,cy0::Float64)
-    cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
-    cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
-    cx[1] = cx0;
-    cy[1] = cy0;
-    LensletModel(bbox, DispModel(λ0, order, cx, cy))
-end
+# Lenslet model constructor
+# * `λ0`  : reference wavelength
+# * `order` : order of the polynomials
+# * `bbox` : bounding box of the lenslet on the detector
+# * `cx0` :
+# * `cy0` :
+# """
+# function LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int},cx0::Float64,cy0::Float64)
+#     cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
+#     cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
+#     cx[1] = cx0;
+#     cy[1] = cy0;
+#     LensletModel(bbox, DispModel(λ0, order, cx, cy))
+# end
 
 
-"""
-    lmod = LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int})
+# """
+#     lmod = LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int})
 
-Lenslet model constructor
-* `λ0`  : reference wavelength
-* `order` : order of the polynomials
-* `bbox` : bounding box of the lenslet on the detector
-"""
-function LensletModel(λ0::Float64, order::Int,cx0::Float64,cy0::Float64, widthx::Number, widthy::Number)
-    cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
-    cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
-    cx[1] = cx0;
-    cy[1] = cy0;
-    bbox = round(Int,BoundingBox(xmin=cx0-widthx, ymin=cy0-widthy, xmax=cx0+widthx, ymax=cy0+widthy));
-    LensletModel(bbox, DispModel(λ0, order, cx, cy))
-end
+# Lenslet model constructor
+# * `λ0`  : reference wavelength
+# * `order` : order of the polynomials
+# * `bbox` : bounding box of the lenslet on the detector
+# """
+# function LensletModel(λ0::Float64, order::Int,cx0::Float64,cy0::Float64, widthx::Number, widthy::Number)
+#     cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
+#     cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
+#     cx[1] = cx0;
+#     cy[1] = cy0;
+#     bbox = round(Int,BoundingBox(xmin=cx0-widthx, ymin=cy0-widthy, xmax=cx0+widthx, ymax=cy0+widthy));
+#     LensletModel(bbox, DispModel(λ0, order, cx, cy))
+# end
 
 
 
@@ -227,7 +124,7 @@ Compute the value at position sqrt(x) 1D centered Gaussian
 
 Equivalent to `GaussianModel(A, fwhm, sqrt(x))`
 """
-function GaussianModel2(A, fwhm::T, x::T) where (T<:Real)
+function GaussianModel2(A::T, fwhm::T, x::T) where (T<:Real)
     local fwhm2sigma = T(1 / (2 * sqrt(2 * log(2.))))
     return A * exp(-x / (2 * (fwhm * fwhm2sigma )^2));
 end
@@ -273,7 +170,7 @@ Compute inplace the value at position sqrt(r) 1D centered Gaussian
 Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
 """
 function GaussianModel2!(ret::AbstractArray{T},fwhm, x::AbstractArray{T}) where (T<:Real)
-        ret .= exp.(-x ./ T(2 * (fwhm * 1 / (2 * sqrt(2 * log(2.))) )^2));
+        @. ret = exp(-x / T(2 * (fwhm * 1 / (2 * sqrt(2 * log(2.))) )^2));
         nothing
 end
 
@@ -562,7 +459,7 @@ function fitSpectralLaw(laserdata::Matrix{T},
     else
         numberoflenslet = min(length(validlenslets) ,numberoflenslet)
     end
-
+    profileorder= 4
     nλ = length(λlaser)
     λ0 = mean(λlaser)# reference
     @assert length(fwhminit) == nλ
@@ -576,7 +473,7 @@ function fitSpectralLaw(laserdata::Matrix{T},
     Threads.@threads for i in findall(validlenslets)
         lensletbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
 
-        lenslettab[i] = LensletModel(λ0,nλ-1, lensletbox);
+        lenslettab[i] = LensletModel(λ0,nλ-1,profileorder, lensletbox);
         Cinit= [ [position[i,1] cxinit...]; [position[i,2] cyinit...] ];
         xinit = vcat([fwhminit[:],Cinit[:]]...);
         laserDataView = view(laserdata, lensletbox);
@@ -613,6 +510,7 @@ function fitSpectralLaw(laserdata::Matrix{T},
     validlenslets::AbstractArray{Bool,1}=[true]
     ) where T<:Real
 
+    profileorder = 4
     numberoflenslet = size(position)[1]
     if length(validlenslets)==1
         validlenslets = true(numberoflenslet)
@@ -634,7 +532,7 @@ function fitSpectralLaw(laserdata::Matrix{T},
     Threads.@threads for i in findall(validlenslets)
         lensletbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
 
-        lenslettab[i] = LensletModel(λ0,nλ-1, lensletbox);
+        lenslettab[i] = LensletModel(λ0,nλ-1, profileorder,lensletbox);
         Cinit= [ [position[i,1] cxinit...]; [position[i,2] cyinit...] ];
         xinit = vcat([fwhminit[:],Cinit[:]]...);
         laserDataView = view(laserdata, lensletbox);
@@ -687,4 +585,58 @@ function distanceMap(wavelengthrange::AbstractArray{Float64,1},
     end
     return (dist,pixλ)
 end
+
+
+struct LikelihoodProfile{T<:AbstractFloat}
+    model::ProfileModel
+    data::Matrix{T}
+    weight::Matrix{T}
+    λMap::Matrix{T}
+    distMap::Matrix{T}
+    amplitude::Vector{T}#MVector{N, Float64}
+    # Inner constructor provided to force using outer constructors.
+    function LikelihoodProfile{T}(model::ProfileModel,
+                                    data::Matrix{T},
+                                    weight::Matrix{T},
+                                    λMap::Matrix{T},
+                                    distMap::Matrix{T}) where {T<:AbstractFloat}
+        @assert size(data) == size(weight)
+        @assert size(data) == size(λMap)
+        @assert size(data) == size(distMap)
+        amplitude =  zeros(T,size(data,2))
+        return new{T}(model,data, weight,λMap, distMap,amplitude)
+    end
+end
+
+
+function  (self::LikelihoodProfile)(coefs::Vector{T})::T where (T<:AbstractFloat)
+    UpdateProfileModel(self.model,coefs)
+    #profile =Zygote.Buffer(self.distMap)
+    #getProfile!(profile,self.model,self.λMap, self.distMap)
+    #profile = copy(profile)
+    #@show profile = getProfile(self.model,self.λMap, self.distMap)
+    p = @. GaussianModel2.(self.model.(self.λMap),self.distMap.^2)
+    profile = p ./ sum(p,dims=1)
+    amp = Zygote.@ignore  updateAmplitude(profile,self.data,self.weight)
+    Zygote.@ignore self.amplitude .= amp[:]
+    return (sum(abs2,@. self.weight * (self.data - amp .* profile)))
+ end
+
+function updateAmplitude(profile,data::Matrix{T},weight::Matrix{T}) where T<:AbstractFloat
+    A = similar(data)
+    b = similar(data)
+
+    @. b = profile * data * weight
+    @. A = profile^2 * weight
+    A = sum(A,dims=1)
+    b = sum(b,dims=1)
+    zA = (A .== T(0)).||(b.<=T(0))
+    if any(zA)
+        A[zA] .=1
+        b[zA] .=0
+    end
+    
+    return b ./ A
+end
+
 end

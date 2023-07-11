@@ -3,7 +3,7 @@
 # This software is released under the MIT License.
 # https://opensource.org/licenses/MIT
 
-using PIC
+using Revise, PIC
 
 using Plots, StatsBase,Statistics, DelimitedFiles
 using FITSIO
@@ -52,8 +52,8 @@ lensletsize = (dxmin, dxmax,dymin,dymax);
 valid = ((cx0 .- dxmin).>0) .&  ((cx0 .+ dxmax).<2048) .&  ((cy0 .- dymin).>0) .&  ((cy0 .+ dymax).<2048);
 
 
-(lenslettab, atab, fwhmtab,ctab) = fitSpectralLaw(laserData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit;validlenslets=valid[1:100]);
-(lenslettab,  atab, fwhmtab, distweight, λMap) = fitSpectralLaw(laserData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit,wavelengthrange;validlenslets=validlenslet);
+#(lenslettab, atab, fwhmtab,ctab) = fitSpectralLaw(laserData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit;validlenslets=valid[1:100]);
+(lenslettab,  atab, fwhmtab, distweight, λMap) = fitSpectralLaw(laserData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit,wavelengthrange;validlenslets=valid[1:1000]);
 
 #(lenslettab, distweight, λMap) = fitSpectralLaw(laserData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit,wavelengthrange;validlenslets=valid);
 
