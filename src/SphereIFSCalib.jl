@@ -1,6 +1,6 @@
 module SphereIFSCalib
 
-using Zygote, StaticArrays,StatsBase
+using Zygote, StaticArrays,StatsBase, LinearAlgebra
 using TwoDimensional, ProgressMeter, OptimPackNextGen
 include("DispModel.jl")
 include("ProfileModel.jl")
@@ -157,7 +157,7 @@ function GaussianModel2(fwhm::T, x::T) where (T<:Real)
     return exp(-x / (2 * (fwhm * fwhm2sigma )^2));
 end
 
-
+GaussianModel2(tpl::Tuple{T, T}) where (T<:Real) = GaussianModel2(tpl...)
 
 """
     GaussianModel2!(ret::AbstractArray{T},fwhm::Float64, x::AbstractArray)
@@ -592,19 +592,19 @@ struct LikelihoodProfile{T<:AbstractFloat}
     data::Matrix{T}
     weight::Matrix{T}
     λMap::Matrix{T}
-    distMap::Matrix{T}
+    bbox::BoundingBox{Int64}
     amplitude::Vector{T}#MVector{N, Float64}
     # Inner constructor provided to force using outer constructors.
     function LikelihoodProfile{T}(model::ProfileModel,
                                     data::Matrix{T},
                                     weight::Matrix{T},
                                     λMap::Matrix{T},
-                                    distMap::Matrix{T}) where {T<:AbstractFloat}
+                                    bbox::BoundingBox{Int64}) where {T<:AbstractFloat}
         @assert size(data) == size(weight)
         @assert size(data) == size(λMap)
-        @assert size(data) == size(distMap)
-        amplitude =  zeros(T,size(data,2))
-        return new{T}(model,data, weight,λMap, distMap,amplitude)
+        @assert size(data) == size(bbox)
+        amplitude =  zeros(T,size(data,2)+1)
+        return new{T}(model,data, weight,λMap, bbox,amplitude)
     end
 end
 
@@ -615,16 +615,74 @@ function  (self::LikelihoodProfile)(coefs::Vector{T})::T where (T<:AbstractFloat
     #getProfile!(profile,self.model,self.λMap, self.distMap)
     #profile = copy(profile)
     #@show profile = getProfile(self.model,self.λMap, self.distMap)
-    p = @. GaussianModel2.(self.model.(self.λMap),self.distMap.^2)
+    p = @. GaussianModel2(self.model.(self.λMap)...)
     profile = p ./ sum(p,dims=1)
     amp = Zygote.@ignore  updateAmplitude(profile,self.data,self.weight)
     Zygote.@ignore self.amplitude .= amp[:]
     return (sum(abs2,@. self.weight * (self.data - amp .* profile)))
  end
 
+ function  (self::LikelihoodProfile)(coefs::Matrix{T})::T where (T<:AbstractFloat)
+    UpdateProfileModel(self.model,coefs)
+    #profile =Zygote.Buffer(self.distMap)
+    #getProfile!(profile,self.model,self.λMap, self.distMap)
+    #profile = copy(profile)
+    #@show profile = getProfile(self.model,self.λMap, self.distMap)
+    profile = @. GaussianModel2(self.model(self.λMap,($(axes(self.bbox,1)))))
+    #profile = p ./ sum(p,dims=1)
+    amp = Zygote.@ignore  updateAmplitudeAndBackground(profile,self.data,self.weight)
+    Zygote.@ignore self.amplitude .= amp[:]
+    return (sum(abs2,@. self.weight * (self.data - amp[1] - $(reshape(amp[2:end],1,:)) * profile)))
+ end
+
 function updateAmplitude(profile,data::Matrix{T},weight::Matrix{T}) where T<:AbstractFloat
     A = similar(data)
     b = similar(data)
+
+    @. b = profile * data * weight
+    @. A = profile^2 * weight
+    A = sum(A,dims=1)
+    b = sum(b,dims=1)
+    zA = (A .== T(0)).||(b.<=T(0))
+    if any(zA)
+        A[zA] .=1
+        b[zA] .=0
+    end
+    
+    return b ./ A
+end
+
+function updateAmplitudeAndBackground(profile,data::Matrix{T},weight::Matrix{T}) where T<:AbstractFloat
+    
+    c = @. profile *  weight
+    b = @. profile * data * weight
+    a = @. profile^2 * weight
+    a = sum(a,dims=1)[:]
+    b = sum(b,dims=1)[:]
+    c = sum(c,dims=1)[:]
+    za = (a .== T(0)).||(b.<=T(0))
+    if any(za)
+        A[za] .=1
+        b[za] .=0
+    end
+    
+
+    N = length(a)
+    A = Matrix{T}(undef,N+1,N+1)
+    A[1,1] = sum(weight)
+    A[1,2:end] .= A[2:end,1] .= c[:]
+    A[2:end,2:end] .= diagm(a)
+
+    b =  vcat(sum(data .* weight),b[:])
+
+    return  inv(A)*b
+end
+
+
+function updateAmplitude(profile,data::Matrix{T},weight::Matrix{T}) where T<:AbstractFloat
+    A = similar(data)
+    b = similar(data)
+    N = length(data)
 
     @. b = profile * data * weight
     @. A = profile^2 * weight

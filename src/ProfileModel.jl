@@ -33,28 +33,40 @@ function (self::ProfileModel)(λ::Float64)
     return (w,y)
 end
 
+function (self::ProfileModel)(λ::Float64,x)
+    w = self.cλ[1];
+    y = self.cy[1];
+    @inbounds for o in 1:self.order
+        λpo = (( λ - self.λ0)/self.λ0 )^(o)
+        w += self.cλ[o + 1]  * λpo;
+        y += self.cy[o + 1]  * λpo;
+    end
+    return (w,(y-x)^2)
+end
+
 function UpdateProfileModel(self::ProfileModel, C::Matrix{Float64})
-    @assert length(C)==(self.order+1)  "coefficients size does not match the order"
+    @assert size(C)==(2,self.order+1)  "coefficients size does not match the order"
     self.cλ = C[1,:];
     self.cy = C[2,:];
     return self
 end
 
-# GaussianModel2!(ret::AbstractArray{T},fwhm, x::AbstractArray{T}) where (T<:Real)
-function getProfile(pmodel::ProfileModel, dist,pixλ)  
-    p = Zygote.Buffer(dist);
-    #p = similar(dist)
-    (w,y) = pmodel(λ)
-    for (index,(d, λ)) in enumerate(zip(dist,pixλ)) 
-        p[index] = GaussianModel2(w,d^2)
-    end
-    cp = copy(p)
-    return cp./sum(cp,dims=1)
-end
-function getProfile!(p,pmodel::ProfileModel, dist,pixλ)  
-    for (index,(d, λ)) in enumerate(zip(dist,pixλ)) 
-        p[index] = GaussianModel2(pmodel(λ),d^2)
-    end
-    #p .= p./sum(p,dims=1)
-    #return p
-end
+
+# # GaussianModel2!(ret::AbstractArray{T},fwhm, x::AbstractArray{T}) where (T<:Real)
+# function getProfile(pmodel::ProfileModel,pixλ)  
+#     p = Zygote.Buffer(pixλ);
+#     #p = similar(dist)
+#     for (index, λ) in enumerate(pixλ) 
+#         p[index] = GaussianModel2(pmodel(λ)...)
+#     end
+#     cp = copy(p)
+#     return cp./sum(cp,dims=1)
+# end
+
+# function getProfile!(p,pmodel::ProfileModel,pixλ)  
+#     for (index, λ) in enumerate(pixλ)
+#         p[index] = GaussianModel2(pmodel(λ)...)
+#     end
+#     p .= p./sum(p,dims=1)
+#     #return p
+# end
