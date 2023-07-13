@@ -14,7 +14,8 @@ export
     LensletLaserImage,
     UpdateDispModel,
     UpdateLaserModel,
-    fitSpectralLaw
+    fitSpectralLaw,
+    fitSpectralLawAndProfile
 
 include("SphereIFSCalib.jl")
 
@@ -26,6 +27,7 @@ import .SphereIFSCalib:
     LensletLaserImage,
     UpdateDispModel,
     UpdateLaserModel,
-    fitSpectralLaw
+    fitSpectralLaw,
+    fitSpectralLawAndProfile
 
 end # module

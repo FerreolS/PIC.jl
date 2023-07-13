@@ -4,6 +4,7 @@
 # https://opensource.org/licenses/MIT
 
 using Revise, PIC
+ENV["JULIA_DEBUG"] = Main.PIC
 
 using Plots, StatsBase,Statistics, DelimitedFiles
 using FITSIO

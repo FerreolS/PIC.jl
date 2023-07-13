@@ -567,10 +567,10 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
         profilecoefs[1,1] = maximum(fwhm)
         profilecoefs[2,1:nλ] .= lenslettab[i].dmodel.cx
         pmodel  =  ProfileModel(λ0,profilecoefs)
-        profilelkl = LikelihoodProfile{Float64}(pmodel,lampDataView,lampWeightView,pixλ,lensletbox)
-
+        profilelkl = LikelihoodProfile(pmodel,lampDataView,lampWeightView,pixλ,lensletbox)
+        costpr(x::Matrix{Float64}) = profilelkl(x);
         try
-            vmlmb!(profilelkl, profilecoefs; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
+            vmlmb!(costpr, profilecoefs; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
         catch e
             @debug showerror(stdout, e)
             @debug "Error on lenslet  $i"
@@ -628,7 +628,7 @@ function updateAmplitude(profile,data::Matrix{T},weight::Matrix{T}) where T<:Abs
     return b ./ A
 end
 
-function updateAmplitudeAndBackground(profile,data::Matrix{T},weight::Matrix{T}) where T<:AbstractFloat
+function updateAmplitudeAndBackground(profile,data::MA,weight::MB) where {T<:AbstractFloat,MA<:AbstractMatrix{T},MB<:AbstractMatrix{T}}
     
     c = @. profile *  weight
     b = @. profile * data * weight
