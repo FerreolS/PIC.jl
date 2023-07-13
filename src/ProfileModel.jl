@@ -41,8 +41,6 @@ function (self::ProfileModel)(λ::Float64)
 end
 
 function (self::ProfileModel)(λ::Float64,x)
-    w = self.cλ[1];
-    y = self.cy[1];
     # @inbounds for o in 1:self.order
     #     λpo = (( λ - self.λ0)/self.λ0 )^(o)
     #     w += self.cλ[o + 1]  * λpo;
@@ -50,8 +48,8 @@ function (self::ProfileModel)(λ::Float64,x)
     # end
 
     λpo = (( λ - self.λ0)/self.λ0 ).^(1:self.order)
-    w = sum(self.cλ[2:end]  .* λpo)
-    y = sum(self.cy[2:end] .* λpo)
+    w = self.cλ[1] +sum(self.cλ[2:end]  .* λpo)
+    y = self.cy[1] +sum(self.cy[2:end] .* λpo)
     
     return (w,(y - x)^2)
 end
