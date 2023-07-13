@@ -498,8 +498,10 @@ function fitSpectralLaw(laserdata::Matrix{T},
     return (lenslettab, atab, fwhmtab,ctab);
 end
 
-function fitSpectralLaw(laserdata::Matrix{T},
-    weights::Matrix{T},
+function fitSpectralLawAndProfile(laserdata::Matrix{T},
+    laserweights::Matrix{T},
+    lampdata::Matrix{T},
+    lampweights::Matrix{T},
     λlaser::Array{Float64,1},
     lensletsize::NTuple{4, Int},
     position::Matrix{Float64},
@@ -507,10 +509,10 @@ function fitSpectralLaw(laserdata::Matrix{T},
     cyinit::Vector{Float64},
     fwhminit::Array{Float64,1},
     wavelengthrange::AbstractArray{Float64,1};
-    validlenslets::AbstractArray{Bool,1}=[true]
+    validlenslets::AbstractArray{Bool,1}=[true],
+    profileorder::Int = 3
     ) where T<:Real
 
-    profileorder = 4
     numberoflenslet = size(position)[1]
     if length(validlenslets)==1
         validlenslets = true(numberoflenslet)
@@ -524,21 +526,24 @@ function fitSpectralLaw(laserdata::Matrix{T},
 
     (dxmin, dxmax,dymin,dymax) = lensletsize
     lenslettab = Array{Union{LensletModel,Missing}}(missing,numberoflenslet);
-    atab = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
-    fwhmtab = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
-    distweight = Array{Union{Float64,Missing}}(missing,2048,2048);
+    laserAmplitude = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
+    laserfwhm = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
+    laserdist = Array{Union{Float64,Missing}}(missing,2048,2048);
     λMap =  Array{Union{Float64,Missing}}(missing,2048,2048);
     p = Progress(numberoflenslet; showspeed=true)
     Threads.@threads for i in findall(validlenslets)
         lensletbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
 
         lenslettab[i] = LensletModel(λ0,nλ-1, profileorder,lensletbox);
+
+        # Fit spectral law
+
         Cinit= [ [position[i,1] cxinit...]; [position[i,2] cyinit...] ];
         xinit = vcat([fwhminit[:],Cinit[:]]...);
         laserDataView = view(laserdata, lensletbox);
-        weightView = view(weights,lensletbox);
-        lkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,weightView);
-        cost(x::Vector{Float64}) = lkl(x);
+        laserWeightView = view(laserweights,lensletbox);
+        spectrallkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,laserWeightView);
+        cost(x::Vector{Float64}) = spectrallkl(x);
         local xopt
         try
             xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
@@ -547,15 +552,35 @@ function fitSpectralLaw(laserdata::Matrix{T},
             @debug "Error on lenslet  $i"
             continue
         end
-        atab[:,i] = lkl.amplitude;
-        fwhmtab[:,i] = xopt[1:(nλ)];
+        fwhm = xopt[1:nλ]
+        laserAmplitude[:,i] = spectrallkl.amplitude;
+        laserfwhm[:,i] = fwhm
         (dist, pixλ) = distanceMap(wavelengthrange,lenslettab[i]);
-        view(distweight,lensletbox) .= dist;
+        view(laserdist,lensletbox) .= dist;
         view(λMap,lensletbox) .= pixλ;
+
+        # Fit profile
+        
+        lampDataView = view(lampdata, lensletbox);
+        lampWeightView = view(lampweights,lensletbox);
+        profilecoefs = zeros(2,profileorder)
+        profilecoefs[1,1] = maximum(fwhm)
+        profilecoefs[2,1:nλ] .= lenslettab[i].dmodel.cx
+        pmodel  =  ProfileModel(λ0,profilecoefs)
+        profilelkl = LikelihoodProfile{Float64}(pmodel,lampDataView,lampWeightView,pixλ,lensletbox)
+
+        try
+            vmlmb!(profilelkl, profilecoefs; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
+        catch e
+            @debug showerror(stdout, e)
+            @debug "Error on lenslet  $i"
+            continue
+        end
+        lenslettab[i] = LensletModel(lensletbox,lenslettab[i].dmodel, ProfileModel(λ0, profilecoefs))
         next!(p);
     end
     ProgressMeter.finish!(p);
-    return (lenslettab, atab, fwhmtab,distweight, λMap);
+    return (lenslettab, laserAmplitude, laserfwhm,laserdist, λMap);
 end
 
 
@@ -586,55 +611,6 @@ function distanceMap(wavelengthrange::AbstractArray{Float64,1},
     return (dist,pixλ)
 end
 
-
-struct LikelihoodProfile{T<:AbstractFloat}
-    model::ProfileModel
-    data::Matrix{T}
-    weight::Matrix{T}
-    λMap::Matrix{T}
-    bbox::BoundingBox{Int64}
-    amplitude::Vector{T}#MVector{N, Float64}
-    # Inner constructor provided to force using outer constructors.
-    function LikelihoodProfile{T}(model::ProfileModel,
-                                    data::Matrix{T},
-                                    weight::Matrix{T},
-                                    λMap::Matrix{T},
-                                    bbox::BoundingBox{Int64}) where {T<:AbstractFloat}
-        @assert size(data) == size(weight)
-        @assert size(data) == size(λMap)
-        @assert size(data) == size(bbox)
-        amplitude =  zeros(T,size(data,2)+1)
-        return new{T}(model,data, weight,λMap, bbox,amplitude)
-    end
-end
-
-
-function  (self::LikelihoodProfile)(coefs::Vector{T})::T where (T<:AbstractFloat)
-    UpdateProfileModel(self.model,coefs)
-    #profile =Zygote.Buffer(self.distMap)
-    #getProfile!(profile,self.model,self.λMap, self.distMap)
-    #profile = copy(profile)
-    #@show profile = getProfile(self.model,self.λMap, self.distMap)
-    p = @. GaussianModel2(self.model.(self.λMap)...)
-    profile = p ./ sum(p,dims=1)
-    amp = Zygote.@ignore  updateAmplitude(profile,self.data,self.weight)
-    Zygote.@ignore self.amplitude .= amp[:]
-    return (sum(abs2,@. self.weight * (self.data - amp .* profile)))
- end
-
- function  (self::LikelihoodProfile)(coefs::Matrix{T})::T where (T<:AbstractFloat)
-    UpdateProfileModel(self.model,coefs)
-    #profile =Zygote.Buffer(self.distMap)
-    #getProfile!(profile,self.model,self.λMap, self.distMap)
-    #profile = copy(profile)
-    #@show profile = getProfile(self.model,self.λMap, self.distMap)
-    profile = @. GaussianModel2(self.model(self.λMap,($(axes(self.bbox,1)))))
-    #profile = p ./ sum(p,dims=1)
-    amp = Zygote.@ignore  updateAmplitudeAndBackground(profile,self.data,self.weight)
-    Zygote.@ignore self.amplitude .= amp[:]
-    return (sum(abs2,@. self.weight * (self.data - amp[1] - $(reshape(amp[2:end],1,:)) * profile)))
- end
-
 function updateAmplitude(profile,data::Matrix{T},weight::Matrix{T}) where T<:AbstractFloat
     A = similar(data)
     b = similar(data)
@@ -662,7 +638,7 @@ function updateAmplitudeAndBackground(profile,data::Matrix{T},weight::Matrix{T})
     c = sum(c,dims=1)[:]
     za = (a .== T(0)).||(b.<=T(0))
     if any(za)
-        A[za] .=1
+        a[za] .=1
         b[za] .=0
     end
     
@@ -678,23 +654,5 @@ function updateAmplitudeAndBackground(profile,data::Matrix{T},weight::Matrix{T})
     return  inv(A)*b
 end
 
-
-function updateAmplitude(profile,data::Matrix{T},weight::Matrix{T}) where T<:AbstractFloat
-    A = similar(data)
-    b = similar(data)
-    N = length(data)
-
-    @. b = profile * data * weight
-    @. A = profile^2 * weight
-    A = sum(A,dims=1)
-    b = sum(b,dims=1)
-    zA = (A .== T(0)).||(b.<=T(0))
-    if any(zA)
-        A[zA] .=1
-        b[zA] .=0
-    end
-    
-    return b ./ A
-end
 
 end
