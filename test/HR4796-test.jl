@@ -54,7 +54,7 @@ valid = ((cx0 .- dxmin).>0) .&  ((cx0 .+ dxmax).<2048) .&  ((cy0 .- dymin).>0) .
 
 
 #(lenslettab, atab, fwhmtab,ctab) = fitSpectralLaw(laserData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit;validlenslets=valid[1:100]);
-(lenslettab,  atab, fwhmtab, distweight, λMap) = fitSpectralLawAndProfile(laserData,badpix,lampData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit,wavelengthrange;validlenslets=valid[1:1000]);
+(lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap)  = fitSpectralLawAndProfile(laserData,badpix,lampData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit,wavelengthrange;validlenslets=valid);
 
 #(lenslettab, distweight, λMap) = fitSpectralLaw(laserData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit,wavelengthrange;validlenslets=valid);
 

@@ -459,7 +459,7 @@ function fitSpectralLaw(laserdata::Matrix{T},
     else
         numberoflenslet = min(length(validlenslets) ,numberoflenslet)
     end
-    profileorder= 4
+    profileorder= 2
     nλ = length(λlaser)
     λ0 = mean(λlaser)# reference
     @assert length(fwhminit) == nλ
@@ -510,7 +510,7 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     fwhminit::Array{Float64,1},
     wavelengthrange::AbstractArray{Float64,1};
     validlenslets::AbstractArray{Bool,1}=[true],
-    profileorder::Int = 3
+    profileorder::Int = 2
     ) where T<:Real
 
     numberoflenslet = size(position)[1]
@@ -525,11 +525,12 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     @assert length(fwhminit) == nλ
 
     (dxmin, dxmax,dymin,dymax) = lensletsize
-    lenslettab = Array{Union{LensletModel,Missing}}(missing,numberoflenslet);
-    laserAmplitude = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
-    laserfwhm = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
-    laserdist = Array{Union{Float64,Missing}}(missing,2048,2048);
-    λMap =  Array{Union{Float64,Missing}}(missing,2048,2048);
+    lenslettab = Array{LensletModel}(undef,numberoflenslet);
+    laserAmplitude = Array{Float64,2}(undef,nλ,numberoflenslet);
+    lampAmplitude = Array{Float64,2}(undef,41,numberoflenslet);
+    laserfwhm = Array{Float64,2}(undef,nλ,numberoflenslet);
+    laserdist = Array{Float64,2}(undef,2048,2048);
+    λMap =  Array{Float64,2}(undef,2048,2048);
     p = Progress(numberoflenslet; showspeed=true)
     Threads.@threads for i in findall(validlenslets)
         lensletbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
@@ -563,9 +564,10 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
         
         lampDataView = view(lampdata, lensletbox);
         lampWeightView = view(lampweights,lensletbox);
-        profilecoefs = zeros(2,profileorder)
-        profilecoefs[1,1] = maximum(fwhm)
-        profilecoefs[2,1:nλ] .= lenslettab[i].dmodel.cx
+        profilecoefs = zeros(Float64,2,profileorder+1)
+        profilecoefs[1,1:3] .= [2.3, 2.5, 2.9] # maximum(fwhm)
+        #profilecoefs[1,1] = 3
+        profilecoefs[2,1] = lenslettab[i].dmodel.cx[1]
         pmodel  =  ProfileModel(λ0,profilecoefs)
         profilelkl = LikelihoodProfile(pmodel,lampDataView,lampWeightView,pixλ,lensletbox)
         costpr(x::Matrix{Float64}) = profilelkl(x);
@@ -576,11 +578,16 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
             @debug "Error on lenslet  $i"
             continue
         end
-        lenslettab[i] = LensletModel(lensletbox,lenslettab[i].dmodel, ProfileModel(λ0, profilecoefs))
+        pmodel = ProfileModel(λ0, profilecoefs)
+        lenslettab[i] = LensletModel(lensletbox,lenslettab[i].dmodel, pmodel)
+
+        profile = @. GaussianModel2(pmodel(pixλ,($(axes(lensletbox,1)))))
+        profile = profile ./ sum(profile,dims=1)
+        lampAmplitude[:,i] .= updateAmplitudeAndBackground(profile,lampDataView,lampWeightView)
         next!(p);
     end
     ProgressMeter.finish!(p);
-    return (lenslettab, laserAmplitude, laserfwhm,laserdist, λMap);
+    return (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap);
 end
 
 
@@ -638,8 +645,9 @@ function updateAmplitudeAndBackground(profile,data::MA,weight::MB) where {T<:Abs
     c = sum(c,dims=1)[:]
     za = (a .== T(0)).||(b.<=T(0))
     if any(za)
-        a[za] .=1
-        b[za] .=0
+        a[za] .=T(1)
+        b[za] .=T(0)
+        c[za] .=T(0)
     end
     
 

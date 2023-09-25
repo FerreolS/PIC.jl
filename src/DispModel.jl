@@ -44,13 +44,18 @@ D = DispModel(λ0, order, cx, cy);
 ```
 """
 function (self::DispModel)(λ::Float64)
-    x = self.cx[1];
-    y = self.cy[1];
-    for o in 1:self.order
-        λpo = (( λ - self.λ0)/self.λ0 )^(o)
-        x += self.cx[o + 1]  * λpo;
-        y += self.cy[o + 1]  * λpo;
-    end
+    # x = self.cx[1];
+    # y = self.cy[1];
+    # for o in 1:self.order
+    #     λpo = (( λ - self.λ0)/self.λ0 )^(o)
+    #     x += self.cx[o + 1]  * λpo;
+    #     y += self.cy[o + 1]  * λpo;
+    # end
+
+    λpo = (( λ - self.λ0)/self.λ0 ).^(1:self.order)
+    x = self.cx[1] +sum(self.cx[2:end] .* λpo)
+    y = self.cy[1] +sum(self.cy[2:end] .* λpo)
+    
     return (x, y)
 end
 
