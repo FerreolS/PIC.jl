@@ -1,11 +1,11 @@
 
 
-mutable struct ProfileModel    
+mutable struct ProfileModel
     λ0::Float64   # reference wavelength
     order::Int64  # order of the polynomial
     cλ::Vector{Float64} # coefficients of the polynomial along the wavelength axis
     cy::Vector{Float64} # coefficients of the polynomial along the y axis
-    
+
     function ProfileModel(λ0,order::Int64,cλ::Vector{Float64},cy::Vector{Float64})
         @assert length(cλ)==(order+1) "coefficients size does not match the order"
         @assert length(cy)==(order+1) "coefficients size does not match the order"
@@ -40,7 +40,7 @@ function (self::ProfileModel)(λ::Float64)
     return (w,y)
 end
 
-function (self::ProfileModel)(λ::Float64,x)
+function (self::ProfileModel)(λ::T,x) where {T}
     # @inbounds for o in 1:self.order
     #     λpo = (( λ - self.λ0)/self.λ0 )^(o)
     #     w += self.cλ[o + 1]  * λpo;
@@ -50,7 +50,7 @@ function (self::ProfileModel)(λ::Float64,x)
     λpo = (( λ - self.λ0)/self.λ0 ).^(1:self.order)
     w = self.cλ[1] +sum(self.cλ[2:end]  .* λpo)
     y = self.cy[1] +sum(self.cy[2:end] .* λpo)
-    
+
     return (w,(y - x)^2)
 end
 
@@ -64,17 +64,17 @@ end
 
 
 # # GaussianModel2!(ret::AbstractArray{T},fwhm, x::AbstractArray{T}) where (T<:Real)
-# function getProfile(pmodel::ProfileModel,pixλ)  
+# function getProfile(pmodel::ProfileModel,pixλ)
 #     p = Zygote.Buffer(pixλ);
 #     #p = similar(dist)
-#     for (index, λ) in enumerate(pixλ) 
+#     for (index, λ) in enumerate(pixλ)
 #         p[index] = GaussianModel2(pmodel(λ)...)
 #     end
 #     cp = copy(p)
 #     return cp./sum(cp,dims=1)
 # end
 
-# function getProfile!(p,pmodel::ProfileModel,pixλ)  
+# function getProfile!(p,pmodel::ProfileModel,pixλ)
 #     for (index, λ) in enumerate(pixλ)
 #         p[index] = GaussianModel2(pmodel(λ)...)
 #     end
@@ -95,7 +95,7 @@ struct LikelihoodProfile{T<:AbstractFloat,A<:AbstractMatrix{T},B<:AbstractMatrix
     function LikelihoodProfile(model::ProfileModel,
                                     data::A,
                                     weight::B,
-                                    λMap::Matrix{T},
+                                    λMap::Matrix{<:AbstractFloat},
                                     bbox::BoundingBox{Int64}) where {T<:AbstractFloat,A<:AbstractMatrix{T},B<:AbstractMatrix{T}}
         @assert size(data) == size(weight)
         @assert size(data) == size(λMap)
