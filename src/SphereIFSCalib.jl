@@ -266,63 +266,91 @@ end
 
 
 """
-    LikelihoodIFS(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray,weight::AbstractArray)
+    LikelihoodDisp(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray,weight::AbstractArray)
 
 Build the likelihood function for a given lenslet
-* `lmodel`: model of the lenslet
-* `laser`: wavelengths of the illumination lasers
-* `data` : data
-* `weight`: precision (ie inverse variance) of the data
+- `lmodel`: model of the lenslet
+- `laser`: wavelengths of the illumination lasers
+- `data` : data
+- `weight`: precision (ie inverse variance) of the data
 """
-struct LikelihoodIFS{T<:Real}
-    nλ::Int
-    model::LensletModel
-    wavelengths::Array{T,1}
-    data::Array{T,2}
-    weight::Array{T,2}
-    spots::Array{T,3}
-    amplitude::Array{T,1}#MVector{N, Float64}
-    # Inner constructor provided to force using outer constructors.
-    function LikelihoodIFS{T}(model::LensletModel,
-        wavelengths::Array{T,1},
-        data::Array{T,2},
-        weight::Array{T,2}) where {T<:Real}
-        nλ =length(wavelengths);
-        @assert nλ > model.dmodel.order " the order of the law must be less than the number of laser"
-        @assert size(data) == size(weight)
-        spots = zeros(Float64,size(round(model.bbox))...,nλ)
-        amplitude =  zeros(Float64,nλ)
-        return new{T}(nλ,model,wavelengths,data, weight,spots,amplitude)
-    end
-    # Inner constructor provided to force using outer constructors.
-    function LikelihoodIFS{T}(model::LensletModel,
-        wavelengths::Array{T,1},
-        data::Array{T,2},
-        weight::T) where {T<:Real}
-        nλ =length(wavelengths);
-        #@assert laser.nλ == N
-        @assert nλ > model.dmodel.order " the order of the law must be less than the number of laser"
-        spots = zeros(Float64,size(round(model.bbox))...,nλ)
-        amplitude =  zeros(Float64,nλ)
-        return new{T}(nλ,model,wavelengths,data, weight*ones(1,1),spots,amplitude)
+struct LikelihoodDisp{T<:Real}
+    nλ          ::Int
+    lmodel      ::LensletModel
+    wavelengths ::Vector{T}
+    data        ::Matrix{T}
+    weight      ::Matrix{T}
+    spots       ::Array{T,3}
+    amplitude   ::Vector{T}
+    
+    function LikelihoodDisp{T}(nλ, lmodel, wavelengths, data, weight, spots, amplitude) where {T}
+        nλ > lmodel.dmodel.order || throw(ArgumentError(
+            "the order of the law must be less than the number of laser"))
+        size(data) == size(weight) || throw(DimensionMismatch("
+            size(data) is not equal to size(weight): $(size(data)) != $(size(weight))"))
+        new(nλ,lmodel,wavelengths,data, weight, spots, amplitude)
     end
 end
 
-function LikelihoodIFS(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray{<:Real,2})
-    T = float(eltype(data))
-    LikelihoodIFS{T}(model,convert(Array{T,1},wavelengths),convert(Array{T,2},data),T(1.0))
-end
+"""
+    LikelihoodDisp{T}(lmodel, wavelengths, data, weight)
 
-function LikelihoodIFS(model::LensletModel,
-                        wavelengths::AbstractArray{<:Real,1},
-                        data::AbstractArray{<:Real,2},
-                        weight::Union{Real,AbstractArray{<:Real,2}})
-    T = float(promote_type(eltype(data),eltype(weight)))
-    LikelihoodIFS{T}(model,convert(Array{T,1},wavelengths),convert(Array{T,2},data), T.(weight))
+Alias to compute `nλ`, `spots` and `amplitude` from `lmodel` and `wavelengths`.
+"""
+function LikelihoodDisp{T}(lmodel, wavelengths, data, weight) where {T}
+    nλ = length(wavelengths)
+    spots = zeros(T, size(round(lmodel.bbox))..., nλ)
+    amplitude = zeros(T, nλ)
+    LikelihoodDisp{T}(nλ, lmodel, wavelengths, data, weight, spots, amplitude)
 end
 
 """
-    (self::LikelihoodIFS)(x::Vector{Float64})
+    LikelihoodDisp(lmodel, wavelengths, data, weight)
+
+Alias to find common type parameter `T` from `wavelengths`, `data` and `weight`
+"""
+function LikelihoodDisp(lmodel, wavelengths, data, weight)
+    T = promote_type(eltype(wavelengths), eltype(data), eltype(weight))
+    LikelihoodDisp{T}(lmodel, wavelengths, data, weight)
+end
+
+"""
+    LikelihoodDisp(lmodel, wavelengths, data, weight)
+
+Alias to find common type parameter `T` from `wavelengths`, `data`, `weight`, `spots` and
+`amplitude`
+"""
+function LikelihoodDisp(nλ, lmodel, wavelengths, data, weight, spots, amplitude)
+    T = promote_type(eltype(wavelengths), eltype(data), eltype(weight),
+                     eltype(spots), eltype(amplitude))
+    LikelihoodDisp{T}(nλ, lmodel, wavelengths, data, weight, spots, amplitude)
+end
+
+#    function LikelihoodDisp{T}(nλ, )
+#        ;
+#        @assert nλ > lmodel.dmodel.order " the order of the law must be less than the number of laser"
+#        @assert size(data) == size(weight)
+#        
+#        spots = zeros(Float64,size(round(lmodel.bbox))...,nλ)
+#        amplitude =  zeros(Float64,nλ)
+#        return new{T}(nλ,lmodel,wavelengths,data, weight, spots, amplitude)
+#    end
+#
+#function LikelihoodDisp(lmodel::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray{<:Real,2})
+#    T = float(eltype(data))
+#    LikelihoodDisp{T}(lmodel,convert(Array{T,1},wavelengths),convert(Array{T,2},data),T(1.0))
+#end
+#
+#function LikelihoodDisp(lmodel::LensletModel,
+#                        wavelengths::AbstractArray{<:Real,1},
+#                        data::AbstractArray{<:Real,2},
+#                        weight::Union{Real,AbstractArray{<:Real,2}})
+#    T = float(promote_type(eltype(data),eltype(weight)))
+#    LikelihoodDisp{T}(lmodel,convert(Array{T,1},wavelengths),convert(Array{T,2},data), T.(weight))
+#end
+
+"""
+    (self::LikelihoodDisp)(x::Vector{Float64})
     compute the likelihood for a given lenslet for the parameters `x`
 
     ### Example
@@ -330,23 +358,23 @@ end
     nλ = length(λlaser)
     lenslet = LensletModel(λ0,nλ-1,round(bbox))
     xinit = vcat([fwhminit[:],cinit[:]]...)
-    lkl = LikelihoodIFS(lenslet,λlaser,view(data,lenslet.bbox), view(weight,lenslet.bbox))
+    lkl = LikelihoodDisp(lenslet,λlaser,view(data,lenslet.bbox), view(weight,lenslet.bbox))
     xopt = vmlmb(lkl, xinit; verb=50)
     ```
 """
-function  (self::LikelihoodIFS)(x::Vector{T})::Float64 where (T<:Real)
+function  (self::LikelihoodDisp)(x::Vector{T})::Float64 where (T<:Real)
     (fwhm::Vector{T},c::Matrix{T}) = (x[1:(self.nλ)],reshape(x[(self.nλ+1):(3*self.nλ)],2,:));
     self(fwhm,c)
 end
 
-function  (self::LikelihoodIFS)(fwhm::Array{T,1},C::Array{T,2})::Float64 where (T<:Real)
+function  (self::LikelihoodDisp)(fwhm::Array{T,1},C::Array{T,2})::Float64 where (T<:Real)
     #@assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
-    UpdateDispModel(self.model.dmodel, C);
-    bbox = self.model.bbox;
+    UpdateDispModel(self.lmodel.dmodel, C);
+    bbox = self.lmodel.bbox;
     (rx,ry) = axes(bbox) # extracting bounding box range
     m = Zygote.Buffer(self.spots);
     @inbounds for (index, λ) in enumerate(self.wavelengths)  # For all laser
-        (mx, my)  = self.model.dmodel(λ);  # center of the index-th Gaussian spot
+        (mx, my)  = self.lmodel.dmodel(λ);  # center of the index-th Gaussian spot
         r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
         m[:,:,index] = GaussianModel2.( fwhm[index], r);
         #m[:,:,index] = SimpleGauss.(rx, mx, fwhm[index]) .* SimpleGauss.(ry, my, fwhm[index])';
@@ -363,7 +391,7 @@ function  (self::LikelihoodIFS)(fwhm::Array{T,1},C::Array{T,2})::Float64 where (
  SimpleGauss(x,center::Float64,fwhm::Float64) = exp(-(x-center)^2 / (2 * (fwhm * Float64(1) / (2 * sqrt(2 * log(2.))) )^2));
 
 
-#= function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
+#= function  (self::LikelihoodDisp)(fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
     # @assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
     UpdateDispModel(self.model.dmodel, C);
     bbox = self.model.bbox;
@@ -381,7 +409,7 @@ function  (self::LikelihoodIFS)(fwhm::Array{T,1},C::Array{T,2})::Float64 where (
     return Float64.(sum(self.weight .* (self.data .-sumspot).^2))
  end =#
 
-#=  function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
+#=  function  (self::LikelihoodDisp)(fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
     # @assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
      UpdateDispModel(self.model.dmodel, C);
      bbox = self.model.bbox;
@@ -478,7 +506,7 @@ function fitSpectralLaw(laserdata::Matrix{T},
         xinit = vcat([fwhminit[:],Cinit[:]]...);
         laserDataView = view(laserdata, lensletbox);
         weightView = view(weights,lensletbox);
-        lkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,weightView);
+        lkl = LikelihoodDisp(lenslettab[i],λlaser, laserDataView,weightView);
         cost(x::Vector{Float64}) = lkl(x);
         local xopt
         try
@@ -532,7 +560,7 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     laserdist = Array{Float64,2}(undef,2048,2048);
     λMap =  Array{Float64,2}(undef,2048,2048);
     p = Progress(numberoflenslet; showspeed=true)
-    Threads.@threads for i in findall(validlenslets)
+    Threads.@threads for i in findall(validlenslets)[1:100:end]
         lensletbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
 
         lenslettab[i] = LensletModel(λ0,nλ-1, profileorder,lensletbox);
@@ -543,8 +571,8 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
         xinit = vcat([fwhminit[:],Cinit[:]]...);
         laserDataView = view(laserdata, lensletbox);
         laserWeightView = view(laserweights,lensletbox);
-        spectrallkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,laserWeightView);
-        cost(x::Vector{Float64}) = spectrallkl(x);
+        lkldispersion = LikelihoodDisp{T}(lenslettab[i],λlaser, laserDataView,laserWeightView);
+        cost(x::Vector{Float64}) = lkldispersion(x);
         local xopt
         try
             xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
@@ -554,7 +582,7 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
             continue
         end
         fwhm = xopt[1:nλ]
-        laserAmplitude[:,i] = spectrallkl.amplitude;
+        laserAmplitude[:,i] = lkldispersion.amplitude;
         laserfwhm[:,i] = fwhm
         (dist, pixλ) = distanceMap(wavelengthrange,lenslettab[i]);
         view(laserdist,lensletbox) .= dist;

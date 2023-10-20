@@ -67,6 +67,7 @@ function test_result_strict(result, fitspath)
 
     (lenslettab, laserAmp, lampAmp, laserfwhm,laserdist, λMap) = result
 
+    @testset "test_result_strict" begin
     FitsFile(fitspath) do fitsfile
 
         goods = cmpt_goods(lenslettab)
@@ -134,5 +135,6 @@ function test_result_strict(result, fitspath)
         @testset "λMap" begin
             @test λMap == read(fitsfile["lambdaMap"])
         end
+    end
     end
 end
