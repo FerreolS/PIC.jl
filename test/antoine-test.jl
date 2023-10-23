@@ -67,9 +67,9 @@ valid = ((cx0 .- dxmin).>0) .&  ((cx0 .+ dxmax).<2048) .&  ((cy0 .- dymin).>0) .
 
 
 
-lampData =  read(FITS("IFS_calib_spec_corrected.fits")[1])
-laserData =  read(FITS("IFS_calib_wave_corrected.fits")[1])
-badpix = Float64.(read(FITS("IFS_BP_corrected.fits")[1]))
+lampData = readfits("IFS_calib_spec_corrected.fits")
+laserData = readfits("IFS_calib_wave_corrected.fits")
+badpix = readfits(Array{Float64}, "IFS_BP_corrected.fits")
 
 
 (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap)  = fitSpectralLawAndProfile(laserData,badpix,lampData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit,wavelengthrange;validlenslets=valid);
