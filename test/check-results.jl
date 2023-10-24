@@ -57,6 +57,7 @@ function store_result(
     write(fitsfile,
         FitsHeader("EXTNAME" => "profilecl", "ORDER" => profileorder, "L0" => profileλ0), profilecl)
     write(fitsfile, FitsHeader("EXTNAME" => "laserAmp"), laserAmplitude)
+    write(fitsfile, FitsHeader("EXTNAME" => "lampAmp"), lampAmplitude)
     write(fitsfile, FitsHeader("EXTNAME" => "laserFWHM"), laserfwhm)
     write(fitsfile, FitsHeader("EXTNAME" => "laserDist"), laserdist)
     write(fitsfile, FitsHeader("EXTNAME" => "lambdaMap"), λMap)
@@ -93,14 +94,17 @@ function test_result_strict(result, fitspath)
             goal_λ0    = fitsfile["dmodelcx"]["L0"].float
             goal_dmodelcx = read(fitsfile["dmodelcx"])
             goal_dmodelcy = read(fitsfile["dmodelcy"])
+            e = 0 
             for i in goods
-                @test lenslettab[i].dmodel.order == goal_order
+                @test lenslettab[i].dmodel.order == goal_order || (e += 1 ; false)
                 # λ0 is stored as FITS header so it cannot store exactly the value
                 # so we need to compare using ≈
-                @test lenslettab[i].dmodel.λ0 ≈ goal_λ0
-                @test lenslettab[i].dmodel.cx == goal_dmodelcx[:,i]
-                @test lenslettab[i].dmodel.cy == goal_dmodelcy[:,i]
+                @test lenslettab[i].dmodel.λ0 ≈ goal_λ0 || (e += 1 ; false)
+                @test lenslettab[i].dmodel.cx == goal_dmodelcx[:,i] || (e += 1 ; false)
+                @test lenslettab[i].dmodel.cy == goal_dmodelcy[:,i] || (e += 1 ; false)
+                e > 400 && break
             end
+            e > 400 && @warn "skipping tests because too much tests failed"
         end
 
         @testset "profile" begin
@@ -108,36 +112,48 @@ function test_result_strict(result, fitspath)
             goal_λ0    = fitsfile["profilecy"]["L0"].float
             goal_profilecy = read(fitsfile["profilecy"])
             goal_profilecl = read(fitsfile["profilecl"])
+            e = 0
             for i in goods
-                @test lenslettab[i].profile.order == goal_order
+                @test lenslettab[i].profile.order == goal_order || (e += 1 ; false)
                 # λ0 is stored as FITS header so it cannot store exactly the value
                 # so we need to compare using ≈
-                @test lenslettab[i].profile.λ0 ≈ goal_λ0
-                @test lenslettab[i].profile.cy == goal_profilecy[:,i]
-                @test lenslettab[i].profile.cλ == goal_profilecl[:,i]
+                @test lenslettab[i].profile.λ0 ≈ goal_λ0 || (e += 1 ; false)
+                @test lenslettab[i].profile.cy == goal_profilecy[:,i] || (e += 1 ; false)
+                @test lenslettab[i].profile.cλ == goal_profilecl[:,i] || (e += 1 ; false)
+                e > 400 && break
             end
+            e > 400 && @warn "skipping tests because too much tests failed"
         end
 
         @testset "laserAmp" begin
             goal_LaserAmp = read(fitsfile["laserAmp"])
+            e = 0
             for i in goods
-                @test laserAmp[:,i] == goal_LaserAmp[:,i]
+                @test laserAmp[:,i] == goal_LaserAmp[:,i] || (e += 1 ; false)
+                e > 400 && break
             end
+            e > 400 && @warn "skipping tests because too much tests failed"
         end
 
         @testset "laserfwhm" begin
             goal_LaserFWHM = read(fitsfile["laserFWHM"])
+            e = 0
             for i in goods
-                @test laserfwhm[:,i] == goal_LaserFWHM[:,i]
+                @test laserfwhm[:,i] == goal_LaserFWHM[:,i] || (e += 1 ; false)
+                e > 400 && break
             end
+            e > 400 && @warn "skipping tests because too much tests failed"
         end
 
         @testset "laserdist" begin
             goal_laserdist = read(fitsfile["laserDist"])
             @test size(laserdist) == size(goal_laserdist)
+            e = 0
             for y in size(laserdist, 2), x in size(laserdist, 1)
-                @test laserdist[x,y] == goal_laserdist[x,y]
+                @test laserdist[x,y] == goal_laserdist[x,y] || (e += 1 ; false)
+                e > 400 && break
             end
+            e > 400 && @warn "skipping tests because too much tests failed"
         end
 
         @testset "λMap" begin
@@ -231,48 +247,107 @@ function test_result_approx(result, fitspath)
     end
 end
 
-function filter_numbers(data)
+function keep_numbers(data)
     data |> Fix1(filter, !isnan) |> Fix1(filter, !isinf)
 end
 
-function get_mean_std(data)
-    data = filter_numbers(data)
+function keep_90pc(data)
     (lower, upper) = quantile(data, [0.05, 0.95])
+    clamp.(data, lower, upper)
+end
+
+function get_mean_std(data)
+    data = keep_numbers(data)
+    data = keep_90pc(data)
     return mean(data), std(data)
 end
 
 function get_result_summary(result)
 
     (lenslettab, laserAmp, lampAmp, laserfwhm,laserdist, λMap) = result
-    
-    T = lenslettab[1].dmodel.λ0 |> typeof
 
     goods = cmpt_goods(lenslettab)
-
-    vlm = cmpt_vlm(lenslettab)
     
     ratiogoods = length(goods) / length(lenslettab)
     
+    # disp model
+    
     dmodelorder = lenslettab[goods[1]].dmodel.order
+    dmodelλ0 = lenslettab[goods[1]].dmodel.λ0
     
-    quantilesDmodelcx = fill(NaN, (9, dmodelorder))
-    for o in 1:dmodelorder
-        data = [ lens.dmodel.cx[1+o] for lens in lenslettab[goods] ]
-        quantilesDmodelcx[:,o] .= quantile(filter_numbers(data), 0.1:0.1:0.9)
+    quantilesDmodelcx = fill(NaN, (9, dmodelorder+1))
+    for a in 1:dmodelorder+1
+        data = [ lens.dmodel.cx[a] for lens in lenslettab[goods] ]
+        quantilesDmodelcx[:,a] .= quantile(filter_numbers(data), 0.1:0.1:0.9)
     end
     
-    quantilesDmodelcy = fill(NaN, (9, dmodelorder))
-    for o in 1:dmodelorder
-        data = [ lens.dmodel.cy[1+o] for lens in lenslettab[goods] ]
-        quantilesDmodelcy[:,o] .= quantile(filter_numbers(data), 0.1:0.1:0.9)
+    quantilesDmodelcy = fill(NaN, (9, dmodelorder+1))
+    for a in 1:dmodelorder+1
+        data = [ lens.dmodel.cy[a] for lens in lenslettab[goods] ]
+        quantilesDmodelcy[:,a] .= quantile(filter_numbers(data), 0.1:0.1:0.9)
     end
     
+    # profile model
+    
+    profileorder = lenslettab[goods[1]].profile.order
+    
+    quantilesProfilecy = fill(NaN, (9, profileorder+1))
+    for a in 1:profileorder+1
+        data = [ lens.profile.cy[a] for lens in lenslettab[goods] ]
+        quantilesProfilecy[:,a] .= quantile(filter_numbers(data), 0.1:0.1:0.9)
+    end
+    
+    quantilesProfilecl = fill(NaN, (9, profileorder+1))
+    for a in 1:profileorder+1
+        data = [ lens.profile.cλ[a] for lens in lenslettab[goods] ]
+        quantilesProfilecl[:,a] .= quantile(filter_numbers(data), 0.1:0.1:0.9)
+    end
+    
+    # laser amp
     meanLaserAmp1, stdLaserAmp1 = get_mean_std(laserAmp[1,goods])
     meanLaserAmp2, stdLaserAmp2 = get_mean_std(laserAmp[2,goods])
     meanLaserAmp3, stdLaserAmp3 = get_mean_std(laserAmp[3,goods])
+    
+    # laser FWHM
+    meanLaserFWHM1, stdLaserFWHM1 = get_mean_std(laserfwhm[1,goods])
+    meanLaserFWHM2, stdLaserFWHM2 = get_mean_std(laserfwhm[2,goods])
+    meanLaserFWHM3, stdLaserFWHM3 = get_mean_std(laserfwhm[3,goods])
 
-    (; ratiogoods, quantilesDmodelcx, quantilesDmodelcy, meanLaserAmp1, stdLaserAmp1,
-       meanLaserAmp2, stdLaserAmp2, meanLaserAmp3, stdLaserAmp3)
+    # lamp Amp
+    
+    meanLampAmp = fill(NaN, 40)
+    stdLampAmp = fill(NaN, 40)
+    for i in 1:40
+        m, s = get_mean_std(lampAmp[1+i, goods])
+        meanLampAmp[i] = m
+        stdLampAmp[i] = s
+    end
+
+    # laser dist
+    meanDistColumn = fill(NaN, 5)
+    stdDistColumn = fill(NaN, 5)
+    for c in 1:5
+        cs = [ laserdist[lens.bbox][c,:] for lens in lenslettab[goods] ]
+        m, s = get_mean_std(reduce(vcat, cs))
+        meanDistColumn[c] = m
+        stdDistColumn[c] = s
+    end
+    
+    # laser dist
+    meanλMapLine = fill(NaN, 40)
+    stdλMapLine = fill(NaN, 40)
+    for l in 1:40
+        ls = [ λMap[lens.bbox][:,l] for lens in lenslettab[goods] ]
+        m, s = get_mean_std(reduce(vcat, ls))
+        meanλMapLine[l] = m
+        stdλMapLine[l] = s
+    end
+
+    (; ratiogoods, dmodelorder, dmodelλ0, quantilesDmodelcx, quantilesDmodelcy,
+       quantilesProfilecy, quantilesProfilecl, meanLaserAmp1, stdLaserAmp1,
+       meanLaserAmp2, stdLaserAmp2, meanLaserAmp3, stdLaserAmp3, meanLaserFWHM1, stdLaserFWHM1,
+       meanLaserFWHM2, stdLaserFWHM2, meanLaserFWHM3, stdLaserFWHM3,
+       meanLampAmp, stdLampAmp, meanDistColumn, stdDistColumn, meanλMapLine, stdλMapLine)
 end
 
 function get_result_summary(filepath::String)
@@ -298,9 +373,10 @@ function get_result_summary(filepath::String)
         
         dmodelOrder = hdudmodelcx["ORDER"].integer
         dmodelλ0 = hdudmodelcx["L0"].float
+        goal_dmodelcx = read(fitsfile["dmodelcx"])
+        goal_dmodelcy = read(fitsfile["dmodelcy"])
         
-            goal_dmodelcx = read(fitsfile["dmodelcx"])
-            goal_dmodelcy = read(fitsfile["dmodelcy"])
+        # laser amp
         
         laserAmp = read(hdulaseramp)
         
@@ -321,8 +397,45 @@ function get_result_summary(filepath::String)
         laserAmp3 = filter(x -> lower ≤ x ≤ upper, laserAmp3)
         meanLaserAmp3 = mean(laserAmp3)
         stdLaserAmp3  = std(laserAmp3)
+        
+        # laser fwhm
+        
+        laserFWHM = read(hdulaserfwhm)
+        
+        laserFWHM1 = laserFWHM[1,:] |> Fix1(filter, !isnan)
+        (lower, upper) = quantile(laserFWHM1, [0.05, 0.95])
+        laserFWHM1 = filter(x -> lower ≤ x ≤ upper, laserFWHM1)
+        meanLaserFWHM1 = mean(laserFWHM1)
+        stdlaserFWHM1  = std(laserFWHM1)
+        
+        laserFWHM2 = laserFWHM[2,:] |> Fix1(filter, !isnan)
+        (lower, upper) = quantile(laserFWHM2, [0.05, 0.95])
+        laserFWHM2 = filter(x -> lower ≤ x ≤ upper, laserFWHM2)
+        meanLaserFWHM2 = mean(laserFWHM2)
+        stdLaserFWHM2  = std(laserFWHM2)
+        
+        laserFWHM3 = laserFWHM[3,:] |> Fix1(filter, !isnan)
+        (lower, upper) = quantile(laserFWHM3, [0.05, 0.95])
+        laserFWHM3 = filter(x -> lower ≤ x ≤ upper, laserFWHM3)
+        meanLaserFWHM3 = mean(laserFWHM3)
+        stdLaserFWHM3  = std(laserFWHM3)
 
-        (; ratiogoods, meanLaserAmp1, stdLaserAmp1, meanLaserAmp2, stdLaserAmp2,
-           meanLaserAmp3, stdLaserAmp3)
+        (; ratiogoods,
+           meanLaserAmp1, stdLaserAmp1,
+           meanLaserAmp2, stdLaserAmp2,
+           meanLaserAmp3, stdLaserAmp3,
+           meanLaserFWHM1, stdLaserFWHM1,
+           meanLaserFWHM2, stdLaserFWHM2,
+           meanLaserFWHM3, stdLaserFWHM3)
    end
 end
+
+function display_summary(sum)
+    foreach(keys(sum)) do k
+        print("========== ")
+        println(k)
+        show(stdout, MIME"text/plain"(),sum[k])
+        println()
+    end
+end
+
