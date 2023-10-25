@@ -1,6 +1,8 @@
 using Test,
       TwoDimensional
+      
 using Base: Fix1, Fix2, splat
+using StatsBase: median, mad
 
 function cmpt_goods(lenslettab)
     [ i for i in eachindex(lenslettab)
@@ -396,82 +398,82 @@ function get_result_summary(
     
     # disp model
     
-    quantilesDmodelcx = fill(NaN, (9, dmodelorder + 1))
+    quantilesDmodelcx = fill(NaN, (21, dmodelorder + 1))
     for a in 1:dmodelorder+1
         data = dmodelcx[a,goods]
-        quantilesDmodelcx[:,a] .= quantile(keep_numbers(data), 0.1:0.1:0.9)
+        quantilesDmodelcx[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
     
-    quantilesDmodelcy = fill(NaN, (9, dmodelorder+1))
+    quantilesDmodelcy = fill(NaN, (21, dmodelorder+1))
     for a in 1:dmodelorder+1
         data = dmodelcy[a,goods]
-        quantilesDmodelcy[:,a] .= quantile(keep_numbers(data), 0.1:0.1:0.9)
+        quantilesDmodelcy[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
     
     # profile model
     
-    quantilesProfilecy = fill(NaN, (9, profileorder+1))
+    quantilesProfilecy = fill(NaN, (21, profileorder+1))
     for a in 1:profileorder+1
         data = profilecy[a,goods]
-        quantilesProfilecy[:,a] .= quantile(keep_numbers(data), 0.1:0.1:0.9)
+        quantilesProfilecy[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
     
-    quantilesProfilecl = fill(NaN, (9, profileorder+1))
+    quantilesProfilecl = fill(NaN, (21, profileorder+1))
     for a in 1:profileorder+1
         data = profilecl[a,goods]
-        quantilesProfilecl[:,a] .= quantile(keep_numbers(data), 0.1:0.1:0.9)
+        quantilesProfilecl[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
     
     # laser amp
-    meanLaserAmp1, stdLaserAmp1 = get_mean_std(laserAmp[1,goods])
-    meanLaserAmp2, stdLaserAmp2 = get_mean_std(laserAmp[2,goods])
-    meanLaserAmp3, stdLaserAmp3 = get_mean_std(laserAmp[3,goods])
-    meanStdLasersAmps = [ meanLaserAmp1 stdLaserAmp1 ;
-                          meanLaserAmp2 stdLaserAmp2 ;
-                          meanLaserAmp3 stdLaserAmp3 ]
+    medianLaserAmp1, madLaserAmp1 = keep_numbers(laserAmp[1,goods]) |> x -> (median(x), mad(x))
+    medianLaserAmp2, madLaserAmp2 = keep_numbers(laserAmp[2,goods]) |> x -> (median(x), mad(x))
+    medianLaserAmp3, madLaserAmp3 = keep_numbers(laserAmp[3,goods]) |> x -> (median(x), mad(x))
+    medianMadLasersAmps = [ medianLaserAmp1 madLaserAmp1 ;
+                            medianLaserAmp2 madLaserAmp2 ;
+                            medianLaserAmp3 madLaserAmp3 ]
     
     # laser FWHM
-    meanLaserFWHM1, stdLaserFWHM1 = get_mean_std(laserfwhm[1,goods])
-    meanLaserFWHM2, stdLaserFWHM2 = get_mean_std(laserfwhm[2,goods])
-    meanLaserFWHM3, stdLaserFWHM3 = get_mean_std(laserfwhm[3,goods])
-    meanStdLasersFWHMs = [ meanLaserFWHM1 stdLaserFWHM1 ;
-                           meanLaserFWHM2 stdLaserFWHM2 ;
-                           meanLaserFWHM3 stdLaserFWHM3 ]
+    medianLaserFWHM1, madLaserFWHM1 = keep_numbers(laserfwhm[1,goods]) |> x -> (median(x), mad(x))
+    medianLaserFWHM2, madLaserFWHM2 = keep_numbers(laserfwhm[2,goods]) |> x -> (median(x), mad(x))
+    medianLaserFWHM3, madLaserFWHM3 = keep_numbers(laserfwhm[3,goods]) |> x -> (median(x), mad(x))
+    medianMadLasersFWHMs = [ medianLaserFWHM1 madLaserFWHM1 ;
+                             medianLaserFWHM2 madLaserFWHM2 ;
+                             medianLaserFWHM3 madLaserFWHM3 ]
 
     # lamp Amp
     
-    meanStdLampAmp = fill(NaN, 40, 2)
+    medianMadLampAmp = fill(NaN, 40, 2)
     for i in 1:40
-        m, s = get_mean_std(lampAmp[1+i, goods])
-        meanStdLampAmp[i,1] = m
-        meanStdLampAmp[i,2] = s
+        m, s = keep_numbers(lampAmp[1+i, goods]) |> x -> (median(x), mad(x))
+        medianMadLampAmp[i,1] = m
+        medianMadLampAmp[i,2] = s
     end
 
     # laser dist
-    meanStdDistColumn = fill(NaN, 5, 2)
+    medianMadDistColumn = fill(NaN, 5, 2)
     for c in 1:5
         cs = [ laserdist[BoundingBox(bboxs[:,i]...)][c,:] for i in goods ]
-        m, s = get_mean_std(reduce(vcat, cs))
-        meanStdDistColumn[c,1] = m
-        meanStdDistColumn[c,2] = s
+        m, s = keep_numbers(reduce(vcat, cs)) |> x -> (median(x), mad(x))
+        medianMadDistColumn[c,1] = m
+        medianMadDistColumn[c,2] = s
     end
     
     # laser dist
-    meanStdλMapLine = fill(NaN, 40, 2)
+    medianMadλMapLine = fill(NaN, 40, 2)
     for l in 1:40
         ls = [ λMap[BoundingBox(bboxs[:,i]...)][:,l] for i in goods ]
-        m, s = get_mean_std(reduce(vcat, ls))
-        meanStdλMapLine[l,1] = m
-        meanStdλMapLine[l,2] = s
+        m, s = keep_numbers(reduce(vcat, ls)) |> x -> (median(x), mad(x))
+        medianMadλMapLine[l,1] = m
+        medianMadλMapLine[l,2] = s
     end
 
     (; ratiogoods,
        dmodelorder, dmodelλ0, quantilesDmodelcx, quantilesDmodelcy,
        profileorder, profileλ0, quantilesProfilecy, quantilesProfilecl,
-       meanStdLasersAmps,
-       meanStdLasersFWHMs,
-       meanStdLampAmp,
-       meanStdDistColumn, meanStdλMapLine)
+       medianMadLasersAmps,
+       medianMadLasersFWHMs,
+       medianMadLampAmp,
+       medianMadDistColumn, medianMadλMapLine)
 end
 #
 #function get_result_summary(filepath::String)
