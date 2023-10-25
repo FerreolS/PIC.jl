@@ -45,38 +45,38 @@ laserData = readfits(Array{Float64}, "2580479/reduced_wavespecpos/reduced_SPHER.
 
 lampData = readfits(Array{Float64}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12:20:56.576_IFS_SPECPOS,LAMP_1.650726s_10f_OBS_YJ_IFU.fits")
 
-laserData = reshape(mean(laserData; dims=3), (2048, 2048))
-lampData  = reshape(mean(lampData;  dims=3), (2048, 2048))
-
-#
-#laserWeights = readfits(Array{T}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12:19:51.620_IFS_WAVE,LAMP_1.650726s_10f_OBS_YJ_IFU.fits", ext="weights")
-#
-#lampWeights = readfits(Array{T}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12:20:56.576_IFS_SPECPOS,LAMP_1.650726s_10f_OBS_YJ_IFU.fits"; ext="weights")
+#laserData = reshape(mean(laserData; dims=3), (2048, 2048))
+#lampData  = reshape(mean(lampData;  dims=3), (2048, 2048))
 
 
+laserWeights = readfits(Array{Float64}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12:19:51.620_IFS_WAVE,LAMP_1.650726s_10f_OBS_YJ_IFU.fits", ext="weights")
 
-#meanLampData    = zeros(T, 2048, 2048)
-#meanLampWeights = zeros(T, 2048, 2048)
-#meanLaserData    = zeros(T, 2048, 2048)
-#meanLaserWeights = zeros(T, 2048, 2048)
-#for y in 1:2048, x in 1:2048
-#    goods = findall(!iszero, lampWeights[x,y,:])
-#    meanLampData[x,y]    = isempty(goods) ? 0 : mean(lampData[x,y,goods])
-#    meanLampWeights[x,y] = isempty(goods) ? 0 : length(goods) / sum(1 ./ lampWeights[x,y,goods])
-#
-#    goods = findall(!iszero, laserWeights[x,y,:])
-#    meanLaserData[x,y]    = isempty(goods) ? 0 : mean(laserData[x,y,goods])
-#    meanLaserWeights[x,y] = isempty(goods) ? 0 : length(goods) / sum(1 ./ laserWeights[x,y,goods])
-#end
+lampWeights = readfits(Array{Float64}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12:20:56.576_IFS_SPECPOS,LAMP_1.650726s_10f_OBS_YJ_IFU.fits"; ext="weights")
+
+
+
+meanLampData    = zeros(Float64, 2048, 2048)
+meanLampWeights = zeros(Float64, 2048, 2048)
+meanLaserData    = zeros(Float64, 2048, 2048)
+meanLaserWeights = zeros(Float64, 2048, 2048)
+for y in 1:2048, x in 1:2048
+    goods = findall(!iszero, lampWeights[x,y,:])
+    meanLampData[x,y]    = isempty(goods) ? 0 : mean(lampData[x,y,goods])
+    meanLampWeights[x,y] = isempty(goods) ? 0 : length(goods) / sum(1 ./ lampWeights[x,y,goods])
+
+    goods = findall(!iszero, laserWeights[x,y,:])
+    meanLaserData[x,y]    = isempty(goods) ? 0 : mean(laserData[x,y,goods])
+    meanLaserWeights[x,y] = isempty(goods) ? 0 : length(goods) / sum(1 ./ laserWeights[x,y,goods])
+end
 
 
 
 #lampData = readfits("IFS_calib_spec_corrected.fits")
 #laserData = readfits("IFS_calib_wave_corrected.fits")
-badpix = readfits(Array{Float64}, "IFS_BP_corrected.fits")
+#badpix = readfits(Array{Float64}, "IFS_BP_corrected.fits")
 
 
-(lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap)  = fitSpectralLawAndProfile(laserData,badpix,lampData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit,wavelengthrange;validlenslets=valid);
+(lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap)  = fitSpectralLawAndProfile(meanLaserData,meanLaserWeights,meanLampData,meanLampWeights,λlaser,lensletsize,position,cxinit,cyinit,fwhminit,wavelengthrange;validlenslets=valid);
 
 #=
 msdres = (msdLenslettab, msdLaserAmplitude, msdLampAmplitude, msdLaserfwhm, msdLaserdist, msdλMap) =
