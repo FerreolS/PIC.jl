@@ -583,7 +583,13 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
 
         profile = @. GaussianModel2(pmodel(pixλ,($(axes(lensletbox,1)))))
         profile = profile ./ sum(profile,dims=1)
-        lampAmplitude[:,i] .= updateAmplitudeAndBackground(profile,lampDataView,lampWeightView)
+        try
+            lampAmplitude[:,i] .= updateAmplitudeAndBackground(profile,lampDataView,lampWeightView)
+        catch e
+            @debug showerror(stdout, e)
+            @debug "Error on lenslet  $i"
+            continue
+        end
         next!(p);
     end
     ProgressMeter.finish!(p);
