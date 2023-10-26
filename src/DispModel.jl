@@ -60,65 +60,15 @@ function (self::DispModel)(λ::Float64)
 end
 
 """
-    UpdateDispModel(self::DispModel, C::Array{Float64,2})
+    updateDispModel(::DispModel, C::Matrix{Float64})
 
 Update the coefficients  of the DispModel .
-* `self`: DispModel object
 * `C` : array containing the polynomial coefficients.
 """
-function UpdateDispModel(self::DispModel, C::Array{Float64,2})
-    @assert size(C)==(2,self.order+1) "coefficients array does not have the right size"
-    self.cx = C[1,:];
-    self.cy = C[2,:];
+function updateDispModel(dmodel::DispModel, C::Matrix{Float64})
+    size(C) == (2, dmodel.order+1) || throw(DimensionMismatch(
+        "coefficients array does not have the right size"))
+    dmodel.cx = C[1,:]
+    dmodel.cy = C[2,:]
     return self
-end
-
-"""
-    LaserModel(nλ::Int,λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::Array{Float64,1})
-
-Model of the laser illumination.
-It consist on:
-* `nλ` the number of laser
-* `λlaser` an array of the wavelengths of the lasers
-* `amplitude` an array of the amplitude of the maximum of the Gaussian spot
-* `fwhm` an array of the full width at half maximum of the Gaussians
-"""
-mutable struct LaserModel
-    nλ::Int64
-    λlaser::Array{Float64,1}# wavelength of the laser
-    amplitude::Array{Float64,1}
-    fwhm::Array{Float64,1}
-end
-
-"""
-    LaserModel(λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::Array{Float64,1})
-
-Constructor of the model of the laser illumination.
-It consist on:
-* `λlaser` an array of the wavelengths of the lasers
-* `amplitude` an array of the amplitude of the maximum of each Gaussian spots
-* `fwhm` an array of the full width at half maximum of the Gaussians
-"""
-function LaserModel(λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::Array{Float64,1})
-    nλ = length(λlaser);
-    @assert length(amplitude)==nλ "amplitude vector does not have the right size"
-    @assert length(fwhm)==nλ "fwhm vector does not have the right size"
-    LaserModel(nλ ,λlaser,amplitude,fwhm);
-end
-
-"""
-    UpdateLaserModel(self::LaserModel,A::Array{Float64,1},fwhm::Array{Float64,1})
-
-Update the parameters of the laser model
-* `self` :  LaserModel object
-* `A` : 1D  array of amplitudes of the maximum of each Gaussian spot
-* `fwhm` 1D  array of the full width at half maximum of each Gaussian spot
-
-`A` and `fwhm` must have lenth of `self.nλ`
-"""
-function UpdateLaserModel(self::LaserModel,A::Array{Float64,1},fwhm::Array{Float64,1})
-    @assert length(A)==self.nλ "amplitude vector does not have the right size"
-    @assert length(fwhm)==self.nλ "fwhm vector does not have the right size"
-    self.amplitude = A;
-    self.fwhm = fwhm;
 end

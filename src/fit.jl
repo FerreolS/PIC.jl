@@ -226,7 +226,7 @@ function fitSpectralLaw(laserdata::Matrix{T},
     fwhmtab = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
     ctab = Array{Union{Float64,Missing}}(missing,2,nλ,numberoflenslet);
     p = Progress(numberoflenslet; showspeed=true)
-    Threads.@threads for i in findall(validlenslets)[1:100:end]
+    Threads.@threads for i in findall(validlenslets)
         lensletbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
 
         lenslettab[i] = LensletModel(λ0,nλ-1,profileorder, lensletbox);
@@ -286,7 +286,7 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     laserdist = Array{Float64,2}(undef,2048,2048);
     λMap =  Array{Float64,2}(undef,2048,2048);
     p = Progress(numberoflenslet; showspeed=true)
-    Threads.@threads for i in findall(validlensmap)
+    Threads.@threads for i in findall(validlensmap)[1:100:end]
 
         lensletbox = BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax,
                                  position[i,2]-dymin, position[i,2]+dymax)

@@ -60,25 +60,17 @@ end
 
 
 """
-    (self::LikelihoodDisp)(x::Vector{Float64})
+    (::LikelihoodDisp)(x::Vector{Float64}) -> Float64
     compute the likelihood for a given lenslet for the parameters `x`
-
-    ### Example
-    ```
-    nλ = length(λlaser)
-    lenslet = LensletModel(λ0,nλ-1,round(bbox))
-    xinit = vcat([fwhminit[:],cinit[:]]...)
-    lkl = LikelihoodDisp(lenslet,λlaser,view(data,lenslet.bbox), view(weight,lenslet.bbox))
-    xopt = vmlmb(lkl, xinit; verb=50)
-    ```
 """
-function (self::LikelihoodDisp)(x::Vector{T})::Float64 where (T<:Real)
-    (fwhm::Vector{T},c::Matrix{T}) = (x[1:(self.nλ)],reshape(x[(self.nλ+1):(3*self.nλ)],2,:));
-    self(fwhm,c)
+function (self::LikelihoodDisp)(x::Vector{T}) ::Float64 where {T<:Real}
+    fwhm ::Vector{T} = x[1:self.nλ]
+    vC   ::Vector{T} = x[self.nλ+1:end]
+    C    ::Matrix{T} = reshape(vC, (2,:))
+    self(fwhm, C)
 end
 
-function (self::LikelihoodDisp)(fwhm::Array{T,1},C::Array{T,2})::Float64 where (T<:Real)
-    #@assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
+function (self::LikelihoodDisp)(fwhm::Vector{T}, C::Matrix{T}) ::Float64 where {T<:Real}
     UpdateDispModel(self.lmodel.dmodel, C);
     bbox = self.lmodel.bbox;
     (rx,ry) = axes(bbox) # extracting bounding box range
