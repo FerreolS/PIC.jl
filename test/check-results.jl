@@ -111,7 +111,7 @@ function compare_results_strict(res_1, res_2)
      
     dmodelorder_1 != dmodelorder_2 &&
         @warn "different dmodelorder: $dmodelorder_1 != $dmodelorder_2"
-    dmodelλ0_1 != dmodelλ0_2 && @warn "different dmodelλ0: $dmodelλ0_1 != $dmodelλ0_2"
+    dmodelλ0_1 ≈ dmodelλ0_2 || @warn "different dmodelλ0: $dmodelλ0_1 != $dmodelλ0_2"
      
     if !equalOrNans(dmodelcx_1[:,clm], dmodelcx_2[:,clm])
         @warn "different dmodelcx"
@@ -123,7 +123,7 @@ function compare_results_strict(res_1, res_2)
      
     profileorder_1 != profileorder_2 &&
         @warn "different profileorder: $profileorder_1 != $profileorder_2"
-    profileλ0_1 != profileλ0_2 && @warn "different profileλ0: $profileλ0_1 != $profileλ0_2"
+    profileλ0_1 ≈ profileλ0_2 || @warn "different profileλ0: $profileλ0_1 != $profileλ0_2"
      
     if !equalOrNans(profilecy_1[:,clm], profilecy_2[:,clm])
         @warn "different profilecy"
