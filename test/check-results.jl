@@ -12,11 +12,11 @@ function cmpt_goods(lenslettab)
                                      && [1, 0, 0] != lenslettab[i].profile.cλ   ]
 end
 
-function cmpt_vlm(lenslettab)
-    vlm = zeros(length(lenslettab))
+function cmpt_clm(lenslettab)
+    clm = falses(length(lenslettab))
     goods = cmpt_goods(lenslettab)
-    vlm[goods] .= 1
-    vlm
+    clm[goods] .= true
+    clm
 end
 
 function store_result(
@@ -66,6 +66,186 @@ function store_result(
     write(fitsfile, FitsHeader("EXTNAME" => "laserDist"), laserdist)
     write(fitsfile, FitsHeader("EXTNAME" => "lambdaMap"), λMap)
     close(fitsfile)
+end
+
+function equalOrNans(x, y)
+    size(x) == size(y) || return false
+    for i in eachindex(x)
+        x[i] == y[i] || (isnan(x[i]) && isnan(y[i])) || return false
+    end
+    true
+end
+
+function approxOrNans(x, y)
+    size(x) == size(y) || return false
+    for i in eachindex(x)
+        x[i] ≈ y[i] || (isnan(x[i]) && isnan(y[i])) || return false
+    end
+    true
+end
+
+function compare_results_strict(res_1, res_2)
+    
+    (clm_1, bboxs_1,
+     dmodelorder_1, dmodelλ0_1, dmodelcx_1, dmodelcy_1,
+     profileorder_1, profileλ0_1, profilecy_1, profilecl_1,
+     laserAmp_1, lampAmp_1, laserfwhm_1,
+     laserdist_1, λMap_1) = res_1
+     
+    (clm_2, bboxs_2,
+     dmodelorder_2, dmodelλ0_2, dmodelcx_2, dmodelcy_2,
+     profileorder_2, profileλ0_2, profilecy_2, profilecl_2,
+     laserAmp_2, lampAmp_2, laserfwhm_2,
+     laserdist_2, λMap_2) = res_2
+     
+    if clm_1 != clm_2
+        @warn "different computedlensmap"
+        @warn "next tests will only be on lenses computed by both sides"
+    end
+    
+    clm = (&).(clm_1, clm_2)
+     
+    if bboxs_1[:,clm] != bboxs_2[:,clm]
+        @warn "different bboxs"
+    end
+     
+    dmodelorder_1 != dmodelorder_2 &&
+        @warn "different dmodelorder: $dmodelorder_1 != $dmodelorder_2"
+    dmodelλ0_1 != dmodelλ0_2 && @warn "different dmodelλ0: $dmodelλ0_1 != $dmodelλ0_2"
+     
+    if !equalOrNans(dmodelcx_1[:,clm], dmodelcx_2[:,clm])
+        @warn "different dmodelcx"
+    end
+     
+    if !equalOrNans(dmodelcy_1[:,clm], dmodelcy_2[:,clm])
+        @warn "different dmodelcy"
+    end
+     
+    profileorder_1 != profileorder_2 &&
+        @warn "different profileorder: $profileorder_1 != $profileorder_2"
+    profileλ0_1 != profileλ0_2 && @warn "different profileλ0: $profileλ0_1 != $profileλ0_2"
+     
+    if !equalOrNans(profilecy_1[:,clm], profilecy_2[:,clm])
+        @warn "different profilecy"
+    end
+     
+    if !equalOrNans(profilecl_1[:,clm], profilecl_2[:,clm])
+        @warn "different profilecl"
+    end
+     
+    if !equalOrNans(laserAmp_1[:,clm], laserAmp_2[:,clm])
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(laserAmp_1[:,i], laserAmp_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn "different laserAmp, example lens $bad: $(laserAmp_1[:,bad]) != $(laserAmp_2[:,bad])"
+
+    end
+    
+    if !equalOrNans(lampAmp_1[:,clm], lampAmp_2[:,clm])
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(lampAmp_1[:,i], lampAmp_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn "different lampAmp, example lens $bad: $(lampAmp_1[:,bad]) != $(lampAmp_2[:,bad])"
+    end
+    
+    if !equalOrNans(laserfwhm_1[:,clm], laserfwhm_2[:,clm])
+        @warn "different laserfwhm"
+    end
+    
+    if !equalOrNans(laserdist_1, laserdist_2)
+        @warn "different laserdist"
+    end
+    
+    if !equalOrNans(λMap_1, λMap_2)
+        @warn "different λMap"
+    end
+end
+
+function get_result( (lenslettab, laserAmp, lampAmp, laserfwhm,laserdist, λMap) )
+
+    clm = cmpt_clm(lenslettab)
+    goods = findall(clm)
+    
+    nblenses = length(clm)
+    
+    bboxs = fill(-1, 4, nblenses)
+
+    dmodelorder = lenslettab[goods[1]].dmodel.order
+    dmodelλ0    = lenslettab[goods[1]].dmodel.λ0
+    dmodelcx = fill(NaN, dmodelorder + 1, nblenses)
+    dmodelcy = fill(NaN, dmodelorder + 1, nblenses)
+
+    profileorder = lenslettab[goods[1]].profile.order
+    profileλ0    = lenslettab[goods[1]].profile.λ0
+    profilecy = fill(NaN, profileorder + 1, nblenses)
+    profilecl = fill(NaN, profileorder + 1, nblenses)
+
+    for good in goods
+        lens = lenslettab[good]
+        bboxs[:,good] .= [lens.bbox...]
+        dmodelcx[:,good] .= lens.dmodel.cx
+        dmodelcy[:,good] .= lens.dmodel.cy
+        profilecy[:,good] .= lens.profile.cy
+        profilecl[:,good] .= lens.profile.cλ
+    end
+    
+    (; clm, bboxs,
+       dmodelorder, dmodelλ0, dmodelcx, dmodelcy,
+       profileorder, profileλ0, profilecy, profilecl,
+       laserAmp, lampAmp, laserfwhm,
+       laserdist, λMap)
+end
+
+function get_result(filepath::String)
+
+    FitsFile(filepath) do fitsfile
+
+        hduclm = fitsfile[1]
+        hdubboxs = fitsfile["bboxs"]
+        hdudmodelcx = fitsfile["dmodelcx"]
+        hdudmodelcy = fitsfile["dmodelcy"]
+        hduprofilecy = fitsfile["profilecy"]
+        hduprofilecl = fitsfile["profilecl"]
+        hdulaseramp = fitsfile["laserAmp"]
+        hdulampamp = fitsfile["lampAmp"]
+        hdulaserfwhm = fitsfile["laserfwhm"]
+        hdulaserdist = fitsfile["laserDist"]
+        hduλMap = fitsfile["lambdaMap"]
+        
+        clm = read(Array{Bool}, hduclm)
+        bboxs = read(hdubboxs)
+        
+        dmodelorder = hdudmodelcx["ORDER"].integer
+        dmodelλ0 = hdudmodelcx["L0"].float
+        dmodelcx = read(hdudmodelcx)
+        dmodelcy = read(hdudmodelcy)
+    
+        profileorder = hduprofilecy["ORDER"].integer
+        profileλ0 = hduprofilecy["L0"].float
+        profilecy = read(hduprofilecy)
+        profilecl = read(hduprofilecl)
+    
+        laserAmp = read(hdulaseramp)
+        laserfwhm = read(hdulaserfwhm)
+        lampAmp = read(hdulampamp)
+
+        laserdist = read(hdulaserdist)
+        λMap = read(hduλMap)
+
+        (; clm, bboxs,
+           dmodelorder, dmodelλ0, dmodelcx, dmodelcy,
+           profileorder, profileλ0, profilecy, profilecl,
+           laserAmp, lampAmp, laserfwhm,
+           laserdist, λMap)
+   end
 end
 
 function test_result_strict(result, fitspath)
@@ -296,92 +476,6 @@ function get_mean_std(data)
     data = keep_numbers(data)
     data = keep_90pc(data)
     return mean(data), std(data)
-end
-
-function get_result_summary(
-    (lenslettab, laserAmp, lampAmp, laserfwhm,laserdist, λMap)
-)
-
-    vlm = cmpt_vlm(lenslettab)
-    goods = findall(==(1), vlm)
-    
-    nblenses = length(vlm)
-    
-    bboxs = fill(-1, 4, nblenses)
-
-    dmodelorder = lenslettab[goods[1]].dmodel.order
-    dmodelλ0    = lenslettab[goods[1]].dmodel.λ0
-    dmodelcx = fill(NaN, dmodelorder + 1, nblenses)
-    dmodelcy = fill(NaN, dmodelorder + 1, nblenses)
-
-    profileorder = lenslettab[goods[1]].profile.order
-    profileλ0    = lenslettab[goods[1]].profile.λ0
-    profilecy = fill(NaN, profileorder + 1, nblenses)
-    profilecl = fill(NaN, profileorder + 1, nblenses)
-
-    for good in goods
-        lens = lenslettab[good]
-        bboxs[:,good] .= [lens.bbox...]
-        dmodelcx[:,good] .= lens.dmodel.cx
-        dmodelcy[:,good] .= lens.dmodel.cy
-        profilecy[:,good] .= lens.profile.cy
-        profilecl[:,good] .= lens.profile.cλ
-    end
-    
-    return get_result_summary(
-        vlm, bboxs,
-        dmodelorder, dmodelλ0, dmodelcx, dmodelcy,
-        profileorder, profileλ0, profilecy, profilecl,
-        laserAmp, lampAmp, laserfwhm,
-        laserdist, λMap
-    )
-end
-
-
-function get_result_summary(filepath::String)
-
-    FitsFile(filepath) do fitsfile
-
-        hduvlm = fitsfile[1]
-        hdubboxs = fitsfile["bboxs"]
-        hdudmodelcx = fitsfile["dmodelcx"]
-        hdudmodelcy = fitsfile["dmodelcy"]
-        hduprofilecy = fitsfile["profilecy"]
-        hduprofilecl = fitsfile["profilecl"]
-        hdulaseramp = fitsfile["laserAmp"]
-        hdulampamp = fitsfile["lampAmp"]
-        hdulaserfwhm = fitsfile["laserfwhm"]
-        hdulaserdist = fitsfile["laserDist"]
-        hduλMap = fitsfile["lambdaMap"]
-        
-        vlm = read(hduvlm)
-        bboxs = read(hdubboxs)
-        
-        dmodelorder = hdudmodelcx["ORDER"].integer
-        dmodelλ0 = hdudmodelcx["L0"].float
-        dmodelcx = read(hdudmodelcx)
-        dmodelcy = read(hdudmodelcy)
-    
-        profileorder = hduprofilecy["ORDER"].integer
-        profileλ0 = hduprofilecy["L0"].float
-        profilecy = read(hduprofilecy)
-        profilecl = read(hduprofilecl)
-    
-        laserAmp = read(hdulaseramp)
-        laserfwhm = read(hdulaserfwhm)
-        lampAmp = read(hdulampamp)
-
-        laserdist = read(hdulaserdist)
-        λMap = read(hduλMap)
-
-        get_result_summary(
-            vlm, bboxs,
-            dmodelorder, dmodelλ0, dmodelcx, dmodelcy,
-            profileorder, profileλ0, profilecy, profilecl,
-            laserAmp, lampAmp, laserfwhm,
-            laserdist, λMap
-        )
-   end
 end
 
 function get_result_summary(

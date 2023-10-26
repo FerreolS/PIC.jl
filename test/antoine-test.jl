@@ -39,7 +39,7 @@ dymin = 21;
 dymax = 18;
 lensletsize = (dxmin, dxmax,dymin,dymax);
 
-valid = ((cx0 .- dxmin).>0) .&  ((cx0 .+ dxmax).<2048) .&  ((cy0 .- dymin).>0) .&  ((cy0 .+ dymax).<2048);
+validlensmap = ((cx0 .- dxmin).>0) .&  ((cx0 .+ dxmax).<2048) .&  ((cy0 .- dymin).>0) .&  ((cy0 .+ dymax).<2048);
 
 laserData = readfits(Array{Float64}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12:19:51.620_IFS_WAVE,LAMP_1.650726s_10f_OBS_YJ_IFU.fits")
 
@@ -76,7 +76,10 @@ end
 #badpix = readfits(Array{Float64}, "IFS_BP_corrected.fits")
 
 
-(lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap)  = fitSpectralLawAndProfile(meanLaserData,meanLaserWeights,meanLampData,meanLampWeights,λlaser,lensletsize,position,cxinit,cyinit,fwhminit,wavelengthrange;validlenslets=valid);
+(lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap) =
+    fitSpectralLawAndProfile(meanLaserData, meanLaserWeights, meanLampData, meanLampWeights,
+                             λlaser, lensletsize, position, cxinit, cyinit, fwhminit,
+                             wavelengthrange; validlensmap)
 
 #=
 msdres = (msdLenslettab, msdLaserAmplitude, msdLampAmplitude, msdLaserfwhm, msdLaserdist, msdλMap) =
