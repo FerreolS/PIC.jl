@@ -1,78 +1,3 @@
-module SphereIFSCalib
-
-using Zygote, StaticArrays,StatsBase, LinearAlgebra
-using TwoDimensional, ProgressMeter, OptimPackNextGen
-include("DispModel.jl")
-include("ProfileModel.jl")
-
-
-"""
-    LensletModel(bbox::BoundingBox{Int},dmodel::DispModel)
-
-Model of a lenslet
-The image of a lenslet on the detector is decribed by:
-* `bbox` the boundingbox of its influence on the detector
-* `dmodel` the dispersion model described by a object of type `DispModel`
-"""
-struct LensletModel
-    bbox::BoundingBox{Int}  # Boundingbox of influence of the lenslet on the detector
-    dmodel::DispModel       # dispersion model of the lenslet
-    profile::ProfileModel   # intensity profile in the lenslet
-end
-
-
-"""
-    lmod = LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int})
-
-Lenslet model constructor
-* `λ0`  : reference wavelength
-* `order` : order of the polynomials
-* `bbox` : bounding box of the lenslet on the detector
-"""
-function LensletModel(λ0::Float64, disporder::Int, profileorder::Int, bbox::BoundingBox{Int})
-    LensletModel(bbox, DispModel(λ0, disporder), ProfileModel(λ0, profileorder))
-end
-
-
-# """
-#     lmod = LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int},cx0::Float64,cy0::Float64)
-
-# Lenslet model constructor
-# * `λ0`  : reference wavelength
-# * `order` : order of the polynomials
-# * `bbox` : bounding box of the lenslet on the detector
-# * `cx0` :
-# * `cy0` :
-# """
-# function LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int},cx0::Float64,cy0::Float64)
-#     cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
-#     cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
-#     cx[1] = cx0;
-#     cy[1] = cy0;
-#     LensletModel(bbox, DispModel(λ0, order, cx, cy))
-# end
-
-
-# """
-#     lmod = LensletModel(λ0::Float64, order::Int, bbox::BoundingBox{Int})
-
-# Lenslet model constructor
-# * `λ0`  : reference wavelength
-# * `order` : order of the polynomials
-# * `bbox` : bounding box of the lenslet on the detector
-# """
-# function LensletModel(λ0::Float64, order::Int,cx0::Float64,cy0::Float64, widthx::Number, widthy::Number)
-#     cx = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
-#     cy = zeros(Float64, order + 1); # coefficients of the polynomial along the x axis
-#     cx[1] = cx0;
-#     cy[1] = cy0;
-#     bbox = round(Int,BoundingBox(xmin=cx0-widthx, ymin=cy0-widthy, xmax=cx0+widthx, ymax=cy0+widthy));
-#     LensletModel(bbox, DispModel(λ0, order, cx, cy))
-# end
-
-
-
-
 """
     GaussianModel(A,fwhm,x,y)
 
@@ -226,179 +151,10 @@ function GaussianSpotsModel(lmodel::LensletModel,laser::LaserModel, A::Array{Flo
 end
 
 
-"""
-    LensletLaserImage(lmodel::LensletModel,laser::LaserModel)
 
-Build the image of a lenslet under laser illumination
-* `lmodel`: model of the lenslet
-* `laser`: model of the laser illumination
-"""
-function LensletLaserImage(lmodel::LensletModel,laser::LaserModel)
-    bbox = lmodel.bbox;
-    (rx,ry) = axes(bbox) # extracting bounding box range
-    spotsmodel =   zeros(Float64,size(round(bbox)));
-    @inbounds for (index, λ) in enumerate(laser.λlaser)  # For all laser
-        (mx, my)  = lmodel.dmodel(λ);  # center of the index-th Gaussian spot
-        r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
-        spotsmodel = spotsmodel .+ GaussianModel2.(laser.amplitude[index], laser.fwhm[index], r)
-    end
-    return spotsmodel;
-end
-
-"""
-    LensletLaserImage!(spotsmodel::Array{Float64,3},lmodel::LensletModel,laser::LaserModel)
-
-Build inplace the image of a lenslet under laser illumination
-* `ret` : output array
-* `lmodel`: model of the lenslet
-* `laser`: model of the laser illumination
-"""
-function LensletLaserImage!(spotsmodel::Array{Float64,3},lmodel::LensletModel,laser::LaserModel)
-    bbox = lmodel.bbox;
-    (rx,ry) = axes(bbox) # extracting bounding box range
-    @inbounds for (index, λ) in enumerate(laser.λlaser)  # For all laser
-        (mx, my)  = lmodel.dmodel(λ);  # center of the index-th Gaussian spot
-        r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
-        spotsmodel[:,:,index]= GaussianModel2( laser.fwhm[index], r)
-    end
-    nothing
-end
-
-
-"""
-    LikelihoodIFS(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray,weight::AbstractArray)
-
-Build the likelihood function for a given lenslet
-* `lmodel`: model of the lenslet
-* `laser`: wavelengths of the illumination lasers
-* `data` : data
-* `weight`: precision (ie inverse variance) of the data
-"""
-struct LikelihoodIFS{T<:Real}
-    nλ::Int
-    model::LensletModel
-    wavelengths::Array{T,1}
-    data::Array{T,2}
-    weight::Array{T,2}
-    spots::Array{T,3}
-    amplitude::Array{T,1}#MVector{N, Float64}
-    # Inner constructor provided to force using outer constructors.
-    function LikelihoodIFS{T}(model::LensletModel,
-        wavelengths::Array{T,1},
-        data::Array{T,2},
-        weight::Array{T,2}) where {T<:Real}
-        nλ =length(wavelengths);
-        @assert nλ > model.dmodel.order " the order of the law must be less than the number of laser"
-        @assert size(data) == size(weight)
-        spots = zeros(Float64,size(round(model.bbox))...,nλ)
-        amplitude =  zeros(Float64,nλ)
-        return new{T}(nλ,model,wavelengths,data, weight,spots,amplitude)
-    end
-    # Inner constructor provided to force using outer constructors.
-    function LikelihoodIFS{T}(model::LensletModel,
-        wavelengths::Array{T,1},
-        data::Array{T,2},
-        weight::T) where {T<:Real}
-        nλ =length(wavelengths);
-        #@assert laser.nλ == N
-        @assert nλ > model.dmodel.order " the order of the law must be less than the number of laser"
-        spots = zeros(Float64,size(round(model.bbox))...,nλ)
-        amplitude =  zeros(Float64,nλ)
-        return new{T}(nλ,model,wavelengths,data, weight*ones(1,1),spots,amplitude)
-    end
-end
-
-function LikelihoodIFS(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray{<:Real,2})
-    T = float(eltype(data))
-    LikelihoodIFS{T}(model,convert(Array{T,1},wavelengths),convert(Array{T,2},data),T(1.0))
-end
-
-function LikelihoodIFS(model::LensletModel,
-                        wavelengths::AbstractArray{<:Real,1},
-                        data::AbstractArray{<:Real,2},
-                        weight::Union{Real,AbstractArray{<:Real,2}})
-    T = float(promote_type(eltype(data),eltype(weight)))
-    LikelihoodIFS{T}(model,convert(Array{T,1},wavelengths),convert(Array{T,2},data), T.(weight))
-end
-
-"""
-    (self::LikelihoodIFS)(x::Vector{Float64})
-    compute the likelihood for a given lenslet for the parameters `x`
-
-    ### Example
-    ```
-    nλ = length(λlaser)
-    lenslet = LensletModel(λ0,nλ-1,round(bbox))
-    xinit = vcat([fwhminit[:],cinit[:]]...)
-    lkl = LikelihoodIFS(lenslet,λlaser,view(data,lenslet.bbox), view(weight,lenslet.bbox))
-    xopt = vmlmb(lkl, xinit; verb=50)
-    ```
-"""
-function  (self::LikelihoodIFS)(x::Vector{T})::Float64 where (T<:Real)
-    (fwhm::Vector{T},c::Matrix{T}) = (x[1:(self.nλ)],reshape(x[(self.nλ+1):(3*self.nλ)],2,:));
-    self(fwhm,c)
-end
-
-function  (self::LikelihoodIFS)(fwhm::Array{T,1},C::Array{T,2})::Float64 where (T<:Real)
-    #@assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
-    UpdateDispModel(self.model.dmodel, C);
-    bbox = self.model.bbox;
-    (rx,ry) = axes(bbox) # extracting bounding box range
-    m = Zygote.Buffer(self.spots);
-    @inbounds for (index, λ) in enumerate(self.wavelengths)  # For all laser
-        (mx, my)  = self.model.dmodel(λ);  # center of the index-th Gaussian spot
-        r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
-        m[:,:,index] = GaussianModel2.( fwhm[index], r);
-        #m[:,:,index] = SimpleGauss.(rx, mx, fwhm[index]) .* SimpleGauss.(ry, my, fwhm[index])';
-    end
-    spots = copy(m)
-    Zygote.@ignore  self.amplitude .= updateAmplitude(self.nλ,spots,self.data,self.weight)
-    sumspot =   zeros(Float64,size(round(bbox)));
-    @inbounds for i =1:self.nλ
-        sumspot += self.amplitude[i] *spots[:,:,i]
-    end
-    return Float64.(sum(self.weight .* (self.data .-sumspot).^2))
- end
 
  SimpleGauss(x,center::Float64,fwhm::Float64) = exp(-(x-center)^2 / (2 * (fwhm * Float64(1) / (2 * sqrt(2 * log(2.))) )^2));
 
-
-#= function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
-    # @assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
-    UpdateDispModel(self.model.dmodel, C);
-    bbox = self.model.bbox;
-    (rx,ry) = axes(bbox) # extracting bounding box range
-    spotpos =  self.model.dmodel.(self.wavelengths);
-
-   # spots  = [SimpleGauss(x,spotpos[index][1],fwhm[index]).* SimpleGauss(y, spotpos[index][2], fwhm[index]) for x in rx, y in ry, index in 1:self.nλ]
-    spots  = [GaussianModel2(fwhm[index], ((x -spotpos[index][1])^2) + ((y-spotpos[index][2])^2)) for x in rx, y in ry, index in 1:self.nλ]
-
-    Zygote.@ignore  self.amplitude .= updateAmplitude(self.nλ,spots,self.data,self.weight)
-    sumspot =   zeros(Float64,size(round(bbox)));
-    @inbounds for i =1:self.nλ
-        sumspot += self.amplitude[i] *spots[:,:,i]
-    end
-    return Float64.(sum(self.weight .* (self.data .-sumspot).^2))
- end =#
-
-#=  function  (self::LikelihoodIFS)(fwhm::Array{Float64,1},C::Array{Float64,2})::Float64
-    # @assert length(fwhm)== self.laser.nλ "length(fwhm) must equal to the number of lasers"
-     UpdateDispModel(self.model.dmodel, C);
-     bbox = self.model.bbox;
-    (rx,ry) = axes(bbox) # extracting bounding box LinRange
-    r = [rx,ry];
-    nx =length(rx);
-    ny =length(ry);
-    mx = reinterpret(reshape, Float64, self.model.dmodel.(self.wavelengths))
-    p =   (broadcast((a,b,c) ->SimpleGauss.(a,b,c) ,r,mx,reshape(fwhm,(1,self.nλ))));
-    spots =  reshape(hcat(broadcast((a,b) -> a*b',p[1,1:self.nλ],p[2,1:self.nλ])...),nx,ny,self.nλ)
-    Zygote.@ignore  self.amplitude .= updateAmplitude(self.nλ,spots,self.data,self.weight)
-    sumspot =   zeros(Float64,size(round(bbox)));
-    @inbounds for i =1:self.nλ
-        sumspot += self.amplitude[i] *spots[:,:,i]
-    end
-    return Float64.(sum(self.weight .* (self.data .-sumspot).^2))
- end =#
 
  """
         updateAmplitude(nλ,m,d,W)
@@ -470,7 +226,7 @@ function fitSpectralLaw(laserdata::Matrix{T},
     fwhmtab = Array{Union{Float64,Missing}}(missing,nλ,numberoflenslet);
     ctab = Array{Union{Float64,Missing}}(missing,2,nλ,numberoflenslet);
     p = Progress(numberoflenslet; showspeed=true)
-    Threads.@threads for i in findall(validlenslets)
+    Threads.@threads for i in findall(validlenslets)[1:100:end]
         lensletbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
 
         lenslettab[i] = LensletModel(λ0,nλ-1,profileorder, lensletbox);
@@ -478,7 +234,7 @@ function fitSpectralLaw(laserdata::Matrix{T},
         xinit = vcat([fwhminit[:],Cinit[:]]...);
         laserDataView = view(laserdata, lensletbox);
         weightView = view(weights,lensletbox);
-        lkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,weightView);
+        lkl = LikelihoodDisp(lenslettab[i],λlaser, laserDataView,weightView);
         cost(x::Vector{Float64}) = lkl(x);
         local xopt
         try
@@ -508,18 +264,16 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     cxinit::Vector{Float64},
     cyinit::Vector{Float64},
     fwhminit::Array{Float64,1},
-    wavelengthrange::AbstractArray{Float64,1};
-    validlenslets::AbstractArray{Bool,1}=[true],
-    profileorder::Int = 2
+    wavelengthrange::AbstractArray{Float64,1}
+    ; validlensmap ::AbstractVector{Bool} = trues(size(position, 1)),
+      profileorder::Int = 2
     ) where T<:Real
 
-    numberoflenslet = size(position)[1]
-    if length(validlenslets)==1
-        validlenslets = true(numberoflenslet)
-    else
-        numberoflenslet = min(length(validlenslets) ,numberoflenslet)
-    end
-
+    numberoflenslet = size(position,1)
+    
+    numberoflenslet == length(validlensmap) || throw(DimensionMismatch(
+        "size of `position` incompatible with size of `validlensmap`"))
+    
     nλ = length(λlaser)
     λ0 = mean(λlaser)# reference
     @assert length(fwhminit) == nλ
@@ -532,7 +286,7 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     laserdist = Array{Float64,2}(undef,2048,2048);
     λMap =  Array{Float64,2}(undef,2048,2048);
     p = Progress(numberoflenslet; showspeed=true)
-    Threads.@threads for i in findall(validlenslets)
+    Threads.@threads for i in findall(validlensmap)
 
         lensletbox = BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax,
                                  position[i,2]-dymin, position[i,2]+dymax)
@@ -547,14 +301,13 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
         xinit = vcat([fwhminit[:],Cinit[:]]...);
         laserDataView = view(laserdata, lensletbox);
         laserWeightView = view(laserweights,lensletbox);
-        spectrallkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,laserWeightView);
+        spectrallkl = LikelihoodDisp(lenslettab[i],λlaser, laserDataView,laserWeightView);
         cost(x::Vector{Float64}) = spectrallkl(x);
         local xopt
         try
             xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
         catch e
-            @debug showerror(stdout, e)
-            @debug "Error on lenslet  $i"
+            @debug "Error on lenslet  $i" exception=(e, catch_backtrace())
             continue
         end
         fwhm = xopt[1:nλ]
@@ -590,8 +343,7 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
         try
             lampAmplitude[:,i] .= updateAmplitudeAndBackground(profile,lampDataView,lampWeightView)
         catch e
-            @debug showerror(stdout, e)
-            @debug "Error on lenslet  $i"
+            @debug "Error on lenslet  $i" exception=(e, catch_backtrace())
             continue
         end
         next!(p);
@@ -672,5 +424,3 @@ function updateAmplitudeAndBackground(profile,data::MA,weight::MB) where {T<:Abs
     return  inv(A)*b
 end
 
-
-end
