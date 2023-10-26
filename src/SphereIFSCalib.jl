@@ -533,7 +533,11 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     λMap =  Array{Float64,2}(undef,2048,2048);
     p = Progress(numberoflenslet; showspeed=true)
     Threads.@threads for i in findall(validlenslets)
-        lensletbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
+
+        lensletbox = BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax,
+                                 position[i,2]-dymin, position[i,2]+dymax)
+        # we use RoundNearestTiesUp to enforce box size (special case of `.5` floats)
+        lensletbox = round(Int, lensletbox, RoundNearestTiesUp);
 
         lenslettab[i] = LensletModel(λ0,nλ-1, profileorder,lensletbox);
 
@@ -561,7 +565,7 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
         view(λMap,lensletbox) .= pixλ;
 
         # Fit profile
-        
+
         lampDataView = view(lampdata, lensletbox);
         lampWeightView = view(lampweights,lensletbox);
         profilecoefs = zeros(Float64,2,profileorder+1)
@@ -637,12 +641,12 @@ function updateAmplitude(profile,data::Matrix{T},weight::Matrix{T}) where T<:Abs
         A[zA] .=1
         b[zA] .=0
     end
-    
+
     return b ./ A
 end
 
 function updateAmplitudeAndBackground(profile,data::MA,weight::MB) where {T<:AbstractFloat,MA<:AbstractMatrix{T},MB<:AbstractMatrix{T}}
-    
+
     c = @. profile *  weight
     b = @. profile * data * weight
     a = @. profile^2 * weight
@@ -655,7 +659,7 @@ function updateAmplitudeAndBackground(profile,data::MA,weight::MB) where {T<:Abs
         b[za] .=T(0)
         c[za] .=T(0)
     end
-    
+
 
     N = length(a)
     A = Matrix{T}(undef,N+1,N+1)
