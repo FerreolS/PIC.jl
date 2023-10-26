@@ -65,29 +65,30 @@ end
 """
 function (self::LikelihoodDisp)(x::Vector{T}) ::Float64 where {T<:Real}
     fwhm ::Vector{T} = x[1:self.nλ]
-    vC   ::Vector{T} = x[self.nλ+1:end]
-    C    ::Matrix{T} = reshape(vC, (2,:))
-    self(fwhm, C)
+    cx   ::Vector{T} = x[self.nλ+1 : 2 : end]
+    cy   ::Vector{T} = x[self.nλ+2 : 2 : end]
+    self(fwhm, cx, cy)
 end
 
-function (self::LikelihoodDisp)(fwhm::Vector{T}, C::Matrix{T}) ::Float64 where {T<:Real}
-    UpdateDispModel(self.lmodel.dmodel, C);
-    bbox = self.lmodel.bbox;
-    (rx,ry) = axes(bbox) # extracting bounding box range
+function (self::LikelihoodDisp)(
+    fwhm::Vector{T}, cx::Vector{T}, cy::Vector{T}
+)::Float64 where {T<:Real}
+
+    updateDispModel(self.lmodel.dmodel, cx, cy)
+    (rx, ry) = axes(self.lmodel.bbox) # extracting bounding box range
     m = Zygote.Buffer(self.spots);
-    @inbounds for (index, λ) in enumerate(self.wavelengths)  # For all laser
-        (mx, my)  = self.lmodel.dmodel(λ);  # center of the index-th Gaussian spot
-        r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
-        m[:,:,index] = GaussianModel2.( fwhm[index], r);
-        #m[:,:,index] = SimpleGauss.(rx, mx, fwhm[index]) .* SimpleGauss.(ry, my, fwhm[index])';
+    @inbounds for (i,λ) in enumerate(self.wavelengths)  # for each laser
+        (mx, my)  = self.lmodel.dmodel(λ)  # center of the index-th Gaussian spot
+        r = ((rx.-mx).^2) .+ ((ry.-my).^2)'
+        m[:,:,i] = GaussianModel2.(fwhm[i], r)
     end
     spots = copy(m)
-    Zygote.@ignore  self.amplitude .= updateAmplitude(self.nλ,spots,self.data,self.weight)
-    sumspot =   zeros(Float64,size(round(bbox)));
-    @inbounds for i =1:self.nλ
-        sumspot += self.amplitude[i] *spots[:,:,i]
+    Zygote.@ignore self.amplitude .= updateAmplitude(self.nλ, spots, self.data, self.weight)
+    sumspot = zeros(Float64, size(self.lmodel.bbox))
+    @inbounds for i in 1:self.nλ
+        sumspot += self.amplitude[i] * spots[:,:,i]
     end
-    return Float64.(sum(self.weight .* (self.data .-sumspot).^2))
+    return Float64.(sum(self.weight .* (self.data .- sumspot).^2))
 end
  
  

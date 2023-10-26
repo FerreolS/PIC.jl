@@ -99,57 +99,57 @@ function GaussianModel2!(ret::AbstractArray{T},fwhm, x::AbstractArray{T}) where 
         nothing
 end
 
-"""
-    GaussianSpotsCost(data::Array{Float64,2}, weight::Array{Float64,2}, lmodel::LensletModel,  laser::LaserModel,A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
+#"""
+#    GaussianSpotsCost(data::Array{Float64,2}, weight::Array{Float64,2}, lmodel::LensletModel,  laser::LaserModel,A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
+#
+#Compute a weighted quadratic cost of a lenslet model :
+#cost = weight .* || data - model ||^2
+#* `lmodel`:  model of the lenslet
+#* `A` : 1D array containing the amplitude  of all Gaussian spots
+#* `fwhm` : 1D array containing the fwhm  of all Gaussian spots
+#* `C` : 2D array containing the chromatic law coefficients.
+#"""
+#function GaussianSpotsCost(data::Array{Float64,2}, weight::Array{Float64,2}, lmodel::LensletModel,  laser::LaserModel,A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
+#    UpdateDispModel(lmodel.dmodel, C);
+#    UpdateLaserModel(laser,A,fwhm);
+#    s = 0.;
+#    for I in CartesianIndices(lmodel.bbox)
+#        spotsmodel = 0;
+#        for (index, λ) in enumerate(laser.λlaser)
+#            (mx, my)  = lmodel.dmodel(λ);
+#            spotsmodel += GaussianModel(laser.amplitude[index], laser.fwhm[index], I[1] - mx, I[2] - my)
+#        end
+#        s += weight[I] * ( data[I] - spotsmodel)^2;
+#    end
+#    return s;
+#end
 
-Compute a weighted quadratic cost of a lenslet model :
-cost = weight .* || data - model ||^2
-* `lmodel`:  model of the lenslet
-* `A` : 1D array containing the amplitude  of all Gaussian spots
-* `fwhm` : 1D array containing the fwhm  of all Gaussian spots
-* `C` : 2D array containing the chromatic law coefficients.
-"""
-function GaussianSpotsCost(data::Array{Float64,2}, weight::Array{Float64,2}, lmodel::LensletModel,  laser::LaserModel,A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
-    UpdateDispModel(lmodel.dmodel, C);
-    UpdateLaserModel(laser,A,fwhm);
-    s = 0.;
-    for I in CartesianIndices(lmodel.bbox)
-        spotsmodel = 0;
-        for (index, λ) in enumerate(laser.λlaser)
-            (mx, my)  = lmodel.dmodel(λ);
-            spotsmodel += GaussianModel(laser.amplitude[index], laser.fwhm[index], I[1] - mx, I[2] - my)
-        end
-        s += weight[I] * ( data[I] - spotsmodel)^2;
-    end
-    return s;
-end
 
-
-"""
-    GaussianSpotsModel(lmodel::LensletModel,laser::LaserModel, A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
-
-Build the model of a lenslet
-* `lmodel`:  model of the lenslet
-* `A` : 1D array containing the amplitude  of all Gaussian spots
-* `fwhm` : 1D array containing the fwhm  of all Gaussian spots
-* `C` : 2D array containing the chromatic law coefficients.
-"""
-function GaussianSpotsModel(lmodel::LensletModel,laser::LaserModel, A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
-    UpdateDispModel(lmodel.dmodel, C);
-    UpdateLaserModel(laser,A,fwhm);
-    bbox = lmodel.dmodel;
-    model = zeros(Float64,round(bbox).xmax-round(bbox).xmin+1,round(bbox).ymax-round(bbox).ymin+1);
-    t = Zygote.Buffer(model);
-    t[:] = model[:];
-    for I in CartesianIndices(bbox)
-        for (index, λ) in enumerate(laser.λlaser)
-            (mx, my)  = lmodel.dmodel(λ);
-            t[I[1],I[2]] += GaussianModel(laser.amplitude[index], laser.fwhm[index], I[1] - mx, I[2] - my)
-        end
-    end
-    model =  Zygote.copy(t);
-end
-
+#"""
+#    GaussianSpotsModel(lmodel::LensletModel,laser::LaserModel, A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
+#
+#Build the model of a lenslet
+#* `lmodel`:  model of the lenslet
+#* `A` : 1D array containing the amplitude  of all Gaussian spots
+#* `fwhm` : 1D array containing the fwhm  of all Gaussian spots
+#* `C` : 2D array containing the chromatic law coefficients.
+#"""
+#function GaussianSpotsModel(lmodel::LensletModel,laser::LaserModel, A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
+#    UpdateDispModel(lmodel.dmodel, C);
+#    UpdateLaserModel(laser,A,fwhm);
+#    bbox = lmodel.dmodel;
+#    model = zeros(Float64,round(bbox).xmax-round(bbox).xmin+1,round(bbox).ymax-round(bbox).ymin+1);
+#    t = Zygote.Buffer(model);
+#    t[:] = model[:];
+#    for I in CartesianIndices(bbox)
+#        for (index, λ) in enumerate(laser.λlaser)
+#            (mx, my)  = lmodel.dmodel(λ);
+#            t[I[1],I[2]] += GaussianModel(laser.amplitude[index], laser.fwhm[index], I[1] - mx, I[2] - my)
+#        end
+#    end
+#    model =  Zygote.copy(t);
+#end
+#
 
 
 
