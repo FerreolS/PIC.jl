@@ -80,7 +80,7 @@ function (self::LikelihoodDisp)(
     @inbounds for (i,λ) in enumerate(self.wavelengths)  # for each laser
         (mx, my)  = self.lmodel.dmodel(λ)  # center of the index-th Gaussian spot
         r = ((rx.-mx).^2) .+ ((ry.-my).^2)'
-        m[:,:,i] = GaussianModel2.(fwhm[i], r)
+        m[:,:,i] = GaussianModel2.(r, fwhm[i])
     end
     spots = copy(m)
     Zygote.@ignore self.amplitude .= updateAmplitude(self.nλ, spots, self.data, self.weight)

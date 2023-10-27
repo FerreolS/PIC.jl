@@ -21,13 +21,13 @@ end
 
 function store_result(
     filepath,
-    (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap))
+    (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, clm))
 
     fitsfile = FitsFile(filepath, "w!")
 
     nblenses = length(lenslettab)
 
-    goods = cmpt_goods(lenslettab)
+    goods = findall(clm)
 
     bboxs = fill(-1, 4, nblenses)
     dmodelorder = lenslettab[goods[1]].dmodel.order
@@ -48,9 +48,7 @@ function store_result(
         profilecl[:,good] .= lens.profile.cλ
     end
 
-    vlm = cmpt_vlm(lenslettab)
-
-    write(fitsfile, FitsHeader("HDUNAME" => "validlensesmap"), vlm)
+    write(fitsfile, FitsHeader("HDUNAME" => "computedlensmap"), clm)
     write(fitsfile, FitsHeader("EXTNAME" => "bboxs"), bboxs)
     write(fitsfile,
         FitsHeader("EXTNAME" => "dmodelcx", "ORDER" => dmodelorder, "L0" => dmodelλ0), dmodelcx)
@@ -80,6 +78,14 @@ function approxOrNans(x, y)
     size(x) == size(y) || return false
     for i in eachindex(x)
         x[i] ≈ y[i] || (isnan(x[i]) && isnan(y[i])) || return false
+    end
+    true
+end
+
+function approxOrNans(x, y, atol)
+    size(x) == size(y) || return false
+    for i in eachindex(x)
+        isapprox(x[i], y[i]; atol) || (isnan(x[i]) && isnan(y[i])) || return false
     end
     true
 end
@@ -173,6 +179,107 @@ function compare_results_strict(res_1, res_2)
     end
     
     if !equalOrNans(λMap_1, λMap_2)
+        @warn "different λMap"
+    end
+end
+
+function compare_results_approx(res_1, res_2)
+    
+    (clm_1, bboxs_1,
+     dmodelorder_1, dmodelλ0_1, dmodelcx_1, dmodelcy_1,
+     profileorder_1, profileλ0_1, profilecx_1, profilecl_1,
+     laserAmp_1, lampAmp_1, laserfwhm_1,
+     laserdist_1, λMap_1) = res_1
+     
+    (clm_2, bboxs_2,
+     dmodelorder_2, dmodelλ0_2, dmodelcx_2, dmodelcy_2,
+     profileorder_2, profileλ0_2, profilecx_2, profilecl_2,
+     laserAmp_2, lampAmp_2, laserfwhm_2,
+     laserdist_2, λMap_2) = res_2
+     
+    if clm_1 != clm_2
+        @warn "different computedlensmap"
+        @warn "next tests will only be on lenses computed by both sides"
+    end
+    
+    clm = (&).(clm_1, clm_2)
+     
+    if bboxs_1[:,clm] != bboxs_2[:,clm]
+        @warn "different bboxs"
+    end
+     
+    dmodelorder_1 != dmodelorder_2 &&
+        @warn "different dmodelorder: $dmodelorder_1 != $dmodelorder_2"
+    dmodelλ0_1 ≈ dmodelλ0_2 || @warn "different dmodelλ0: $dmodelλ0_1 != $dmodelλ0_2"
+     
+    if !approxOrNans(dmodelcx_1[:,clm], dmodelcx_2[:,clm])
+        @warn "different dmodelcx"
+    end
+     
+    if !approxOrNans(dmodelcy_1[:,clm], dmodelcy_2[:,clm])
+        @warn "different dmodelcy"
+    end
+     
+    profileorder_1 != profileorder_2 &&
+        @warn "different profileorder: $profileorder_1 != $profileorder_2"
+    profileλ0_1 ≈ profileλ0_2 || @warn "different profileλ0: $profileλ0_1 != $profileλ0_2"
+     
+    if !approxOrNans(profilecx_1[:,clm], profilecx_2[:,clm], 0.01)
+        bad = 0
+        for i in findall(clm)
+            if !approxOrNans(profilecx_1[:,i], profilecx_2[:,i], 0.1)
+                bad = i
+                break
+            end
+        end
+        @warn string("different profilecx, example lens $bad: ",
+                     profilecx_1[:,bad], " != ", profilecx_2[:,bad])
+    end
+     
+    if !approxOrNans(profilecl_1[:,clm], profilecl_2[:,clm])
+        @warn "different profilecl"
+    end
+     
+    if !approxOrNans(laserAmp_1[:,clm], laserAmp_2[:,clm])
+        bad = 0
+        for i in findall(clm)
+            if !approxOrNans(laserAmp_1[:,i], laserAmp_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn "different laserAmp, example lens $bad: $(laserAmp_1[:,bad]) != $(laserAmp_2[:,bad])"
+
+    end
+    
+    if !approxOrNans(lampAmp_1[:,clm], lampAmp_2[:,clm])
+        bad = 0
+        for i in findall(clm)
+            if !approxOrNans(lampAmp_1[:,i], lampAmp_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn "different lampAmp, example lens $bad: $(lampAmp_1[:,bad]) != $(lampAmp_2[:,bad])"
+    end
+    
+    if !approxOrNans(laserfwhm_1[:,clm], laserfwhm_2[:,clm])
+        @warn "different laserfwhm"
+    end
+    
+    if !approxOrNans(laserdist_1, laserdist_2)
+        bad = 0
+        for i in findall(clm)
+            if !approxOrNans(laserdist_1[:,i], laserdist_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn string("different laserdist, example lens $bad: ",
+                     laserdist_1[:,bad], " != ",  laserdist_2[:,bad])
+    end
+    
+    if !approxOrNans(λMap_1, λMap_2)
         @warn "different λMap"
     end
 end

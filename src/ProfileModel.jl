@@ -19,7 +19,7 @@ function ProfileModel(λ0::Float64, order::Int)
     ProfileModel(λ0, order, cx, cλ)
 end
 
-function (self::ProfileModel)(λ::Float64)
+function (self::ProfileModel)(λ::Float64) ::NTuple{2,Float64}
     x = self.cx[1];
     w = self.cλ[1];
     @inbounds for o in 1:self.order
@@ -27,16 +27,16 @@ function (self::ProfileModel)(λ::Float64)
         x += self.cx[o + 1] * λpo;
         w += self.cλ[o + 1] * λpo;
     end
-    return (w, x)
+    return (x, w)
 end
 
-function (self::ProfileModel)(λ::Float64, z)
+function (self::ProfileModel)(λ::Float64, a::Real) ::NTuple{2,Float64}
 
     λpowers = ( (λ-self.λ0) / self.λ0 ).^(1:self.order)
     x = self.cx[1] + sum(self.cx[2:end] .* λpowers)
     w = self.cλ[1] + sum(self.cλ[2:end] .* λpowers)
     
-    return (w, (x - z)^2)
+    return ((x - a)^2, w)
 end
 
 function updateProfileModel(pmodel::ProfileModel, cx::Vector{Float64}, cλ::Vector{Float64})

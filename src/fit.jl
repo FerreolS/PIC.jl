@@ -1,103 +1,99 @@
-"""
-    GaussianModel(A,fwhm,x,y)
+#"""
+#    GaussianModel(A,fwhm,x,y)
+#
+#Compute the value  at position (x,y) of a 2D centered Gaussian
+#* `fwhm` : full-width at half maximum
+#* `A` : amplitude at (x,y) = (0,0)
+#* `x`, `y`: sampled postions
+#"""
+#function GaussianModel(A::Float64, fwhm::Float64, x::Float64, y::Float64)
+#    local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
+#    return A * exp(-(x^2 + y^2) / (2 * (fwhm * fwhm2sigma )^2));
+#end
+#
+#"""
+#    GaussianModel(A::Float64, fwhm::Float64, x::AbstractArray)
+#
+#Compute the value at position x 1D centered Gaussian
+#* `A` : amplitude at x = 0
+#* `fwhm` : full-width at half maximum
+#* `x`: array of the sampled position
+#"""
+#function GaussianModel(A::Float64, fwhm::Float64, x::AbstractArray)
+#    local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
+#    return A .* exp.(.-(x.^2) ./ (2 * (fwhm * fwhm2sigma )^2));
+#end
+#
+#"""
+#    GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
+#
+#Compute the value at position sqrt(r) 1D centered Gaussian
+#* `A` : amplitude at x = 0
+#* `fwhm` : full-width at half maximum
+#* `x`: array of the squared sampled position
+#
+#Equivalent to `GaussianModel(A, fwhm, sqrt.(x))`
+#"""
+#function GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
+#    local fwhm2sigma = Float64(1) / (2 * sqrt(2 * log(2.)))
+#    return A .* exp.(-x ./ (2 * (fwhm * fwhm2sigma )^2));
+#end
+#
+#"""
+#    GaussianModel2(A::Float64, fwhm::Float64, x::Real)
+#
+#Compute the value at position sqrt(x) 1D centered Gaussian
+#* `A` : amplitude at x = 0
+#* `fwhm` : full-width at half maximum
+#* `x`: sampled position
+#
+#Equivalent to `GaussianModel(A, fwhm, sqrt(x))`
+#"""
+#function GaussianModel2(A::T, fwhm::T, x::T) where (T<:Real)
+#    local fwhm2sigma = T(1 / (2 * sqrt(2 * log(2.))))
+#    return A * exp(-x / (2 * (fwhm * fwhm2sigma )^2));
+#end
 
-Compute the value  at position (x,y) of a 2D centered Gaussian
-* `fwhm` : full-width at half maximum
-* `A` : amplitude at (x,y) = (0,0)
-* `x`, `y`: sampled postions
-"""
-function GaussianModel(A::Float64, fwhm::Float64, x::Float64, y::Float64)
-    local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
-    return A * exp(-(x^2 + y^2) / (2 * (fwhm * fwhm2sigma )^2));
-end
+#"""
+#    GaussianModel2(fwhm::Float64, x::AbstractArray)
+#
+#Compute the value at position sqrt(r) 1D centered Gaussian
+#* `fwhm` : full-width at half maximum
+#* `x`: array of the squared sampled position
+#
+#Equivalent to `GaussianModel(1.,fwhm, sqrt.(x))`
+#"""
+#function GaussianModel2(fwhm::T, x::AbstractArray{T})where (T<:Real)
+#    local fwhm2sigma = T(1 / (2 * sqrt(2 * log(2.))))
+#    return exp.(-x ./ (2 * (fwhm * fwhm2sigma )^2));
+#end
 
 """
-    GaussianModel(A::Float64, fwhm::Float64, x::AbstractArray)
-
-Compute the value at position x 1D centered Gaussian
-* `A` : amplitude at x = 0
-* `fwhm` : full-width at half maximum
-* `x`: array of the sampled position
-"""
-function GaussianModel(A::Float64, fwhm::Float64, x::AbstractArray)
-    local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
-    return A .* exp.(.-(x.^2) ./ (2 * (fwhm * fwhm2sigma )^2));
-end
-
-"""
-    GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
-
 Compute the value at position sqrt(r) 1D centered Gaussian
-* `A` : amplitude at x = 0
-* `fwhm` : full-width at half maximum
-* `x`: array of the squared sampled position
-
-Equivalent to `GaussianModel(A, fwhm, sqrt.(x))`
-"""
-function GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
-    local fwhm2sigma = Float64(1) / (2 * sqrt(2 * log(2.)))
-    return A .* exp.(-x ./ (2 * (fwhm * fwhm2sigma )^2));
-end
-
-"""
-    GaussianModel2(A::Float64, fwhm::Float64, x::Real)
-
-Compute the value at position sqrt(x) 1D centered Gaussian
-* `A` : amplitude at x = 0
-* `fwhm` : full-width at half maximum
-* `x`: sampled position
-
-Equivalent to `GaussianModel(A, fwhm, sqrt(x))`
-"""
-function GaussianModel2(A::T, fwhm::T, x::T) where (T<:Real)
-    local fwhm2sigma = T(1 / (2 * sqrt(2 * log(2.))))
-    return A * exp(-x / (2 * (fwhm * fwhm2sigma )^2));
-end
-
-"""
-    GaussianModel2(fwhm::Float64, x::AbstractArray)
-
-Compute the value at position sqrt(r) 1D centered Gaussian
-* `fwhm` : full-width at half maximum
-* `x`: array of the squared sampled position
-
-Equivalent to `GaussianModel(1.,fwhm, sqrt.(x))`
-"""
-function GaussianModel2(fwhm::T, x::AbstractArray{T})where (T<:Real)
-    local fwhm2sigma = T(1 / (2 * sqrt(2 * log(2.))))
-    return exp.(-x ./ (2 * (fwhm * fwhm2sigma )^2));
-end
-
-"""
-    GaussianModel2(fwhm::Float64, x::AbstractArray)
-
-Compute the value at position sqrt(r) 1D centered Gaussian
-* `fwhm` : full-width at half maximum
 * `x`:  squared sampled position
-
-Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
+* `fwhm` : full-width at half maximum
 """
-function GaussianModel2(fwhm::T, x::T) where (T<:Real)
+function GaussianModel2(x::T, fwhm::T) where {T<:Real}
     local fwhm2sigma =T(1 / (2 * sqrt(2 * log( 2))))
     return exp(-x / (2 * (fwhm * fwhm2sigma )^2));
 end
 
-GaussianModel2(tpl::Tuple{T, T}) where (T<:Real) = GaussianModel2(tpl...)
+GaussianModel2(tpl::Tuple{T,T}) where {T<:Real} = GaussianModel2(tpl[1], tpl[2])
 
-"""
-    GaussianModel2!(ret::AbstractArray{T},fwhm::Float64, x::AbstractArray)
-
-Compute inplace the value at position sqrt(r) 1D centered Gaussian
-* `ret` : output array
-* `fwhm` : full-width at half maximum
-* `x`:  squared sampled position
-
-Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
-"""
-function GaussianModel2!(ret::AbstractArray{T},fwhm, x::AbstractArray{T}) where (T<:Real)
-        @. ret = exp(-x / T(2 * (fwhm * 1 / (2 * sqrt(2 * log(2.))) )^2));
-        nothing
-end
+#"""
+#    GaussianModel2!(ret::AbstractArray{T},fwhm::Float64, x::AbstractArray)
+#
+#Compute inplace the value at position sqrt(r) 1D centered Gaussian
+#* `ret` : output array
+#* `fwhm` : full-width at half maximum
+#* `x`:  squared sampled position
+#
+#Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
+#"""
+#function GaussianModel2!(ret::AbstractArray{T},fwhm, x::AbstractArray{T}) where (T<:Real)
+#        @. ret = exp(-x / T(2 * (fwhm * 1 / (2 * sqrt(2 * log(2.))) )^2));
+#        nothing
+#end
 
 #"""
 #    GaussianSpotsCost(data::Array{Float64,2}, weight::Array{Float64,2}, lmodel::LensletModel,  laser::LaserModel,A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
@@ -153,7 +149,7 @@ end
 
 
 
- SimpleGauss(x,center::Float64,fwhm::Float64) = exp(-(x-center)^2 / (2 * (fwhm * Float64(1) / (2 * sqrt(2 * log(2.))) )^2));
+# SimpleGauss(x,center::Float64,fwhm::Float64) = exp(-(x-center)^2 / (2 * (fwhm * Float64(1) / (2 * sqrt(2 * log(2.))) )^2));
 
 
  """
@@ -289,7 +285,7 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     laserdist = Array{Float64,2}(undef,2048,2048);
     λMap =  Array{Float64,2}(undef,2048,2048);
     p = Progress(numberoflenslet; showspeed=true)
-    Threads.@threads for i in findall(validlensmap)[1:100:end]
+    Threads.@threads for i in findall(validlensmap)#[1:100:end]
 
         lensletbox = BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax,
                                  position[i,2]-dymin, position[i,2]+dymax)
@@ -326,11 +322,11 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
         lampWeightView = view(lampweights,lensletbox);
 
         profilecoefs = zeros(Float64, 2, profileorder+1)
-        profilecoefs[1,:] .= [2.3, 2.5, 2.9] # maximum(fwhm)
-        profilecoefs[2,1] = lenslettab[i].dmodel.cx[1]
+        profilecoefs[2,:] .= [2.3, 2.5, 2.9] # maximum(fwhm)
+        profilecoefs[1,1] = lenslettab[i].dmodel.cx[1]
 
-        pmodel = ProfileModel(λ0, profileorder, profilecoefs[2,:], profilecoefs[1,:])
-        profilelkl = LikelihoodProfile(pmodel,lampDataView,lampWeightView,pixλ,lensletbox)
+        pmodel = ProfileModel(λ0, profileorder, profilecoefs[1,:], profilecoefs[2,:])
+        profilelkl = LikelihoodProfile(pmodel, lampDataView, lampWeightView, pixλ, lensletbox)
         costpr(x::Matrix{Float64}) = profilelkl(x);
         try
             vmlmb!(costpr, profilecoefs; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
@@ -338,7 +334,7 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
             @debug "Error on lenslet  $i" exception=(e, catch_backtrace())
             continue
         end
-        pmodel = ProfileModel(λ0, profileorder, profilecoefs[2,:], profilecoefs[1,:])
+        pmodel = ProfileModel(λ0, profileorder, profilecoefs[1,:], profilecoefs[2,:])
         lenslettab[i] = LensletModel(lensletbox, lenslettab[i].dmodel, pmodel)
 
         profile = @. GaussianModel2(pmodel(pixλ,($(axes(lensletbox,1)))))
