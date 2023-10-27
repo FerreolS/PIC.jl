@@ -274,6 +274,9 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     numberoflenslet == length(validlensmap) || throw(DimensionMismatch(
         "size of `position` incompatible with size of `validlensmap`"))
     
+    # map of the computed lenses
+    computedlensmap ::Vector{Bool} = falses(numberoflenslet)
+    
     nλ = length(λlaser)
     λ0 = mean(λlaser)# reference
     @assert length(fwhminit) == nλ
@@ -321,22 +324,22 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
 
         lampDataView = view(lampdata, lensletbox);
         lampWeightView = view(lampweights,lensletbox);
-        profilecoefs = zeros(Float64,2,profileorder+1)
-        profilecoefs[1,1:3] .= [2.3, 2.5, 2.9] # maximum(fwhm)
-        #profilecoefs[1,1] = 3
+
+        profilecoefs = zeros(Float64, 2, profileorder+1)
+        profilecoefs[1,:] .= [2.3, 2.5, 2.9] # maximum(fwhm)
         profilecoefs[2,1] = lenslettab[i].dmodel.cx[1]
-        pmodel  =  ProfileModel(λ0,profilecoefs)
+
+        pmodel = ProfileModel(λ0, profileorder, profilecoefs[2,:], profilecoefs[1,:])
         profilelkl = LikelihoodProfile(pmodel,lampDataView,lampWeightView,pixλ,lensletbox)
         costpr(x::Matrix{Float64}) = profilelkl(x);
         try
             vmlmb!(costpr, profilecoefs; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
         catch e
-            @debug showerror(stdout, e)
-            @debug "Error on lenslet  $i"
+            @debug "Error on lenslet  $i" exception=(e, catch_backtrace())
             continue
         end
-        pmodel = ProfileModel(λ0, profilecoefs)
-        lenslettab[i] = LensletModel(lensletbox,lenslettab[i].dmodel, pmodel)
+        pmodel = ProfileModel(λ0, profileorder, profilecoefs[2,:], profilecoefs[1,:])
+        lenslettab[i] = LensletModel(lensletbox, lenslettab[i].dmodel, pmodel)
 
         profile = @. GaussianModel2(pmodel(pixλ,($(axes(lensletbox,1)))))
         profile = profile ./ sum(profile,dims=1)
@@ -346,10 +349,14 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
             @debug "Error on lenslet  $i" exception=(e, catch_backtrace())
             continue
         end
+        
+        # if we are here the computation was complete
+        computedlensmap[i] = true
+        
         next!(p);
     end
     ProgressMeter.finish!(p);
-    return (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap);
+    return (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
 end
 
 

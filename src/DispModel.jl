@@ -26,11 +26,11 @@ end
 """
     DispModel(λ0::Float64, order::Int)
 
-Version with automatic setting of `cx` and `cy` with zeroes.
+Version with automatic setting of `cx` and `cy` with NaNs.
 """
 function DispModel(λ0, order)
-    cx = zeros(order + 1)
-    cy = zeros(order + 1)
+    cx = fill(NaN, order + 1)
+    cy = fill(NaN, order + 1)
     DispModel(λ0, order, cx, cy)
 end
 

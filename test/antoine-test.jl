@@ -76,10 +76,10 @@ end
 #badpix = readfits(Array{Float64}, "IFS_BP_corrected.fits")
 
 
-output = (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap) =
-    fitSpectralLawAndProfile(meanLaserData, meanLaserWeights, meanLampData, meanLampWeights,
-                             λlaser, lensletsize, position, cxinit, cyinit, fwhminit,
-                             wavelengthrange; validlensmap)
+output = fitSpectralLawAndProfile(
+    meanLaserData, meanLaserWeights, meanLampData, meanLampWeights,
+    λlaser, lensletsize, position, cxinit, cyinit, fwhminit, wavelengthrange
+    ; validlensmap)
 
 #=
 msdres = (msdLenslettab, msdLaserAmplitude, msdLampAmplitude, msdLaserfwhm, msdLaserdist, msdλMap) =

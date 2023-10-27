@@ -8,7 +8,7 @@ function cmpt_goods(lenslettab)
     [ i for i in eachindex(lenslettab)
         if isassigned(lenslettab, i) && all(!isnan, lenslettab[i].dmodel.cx)
                                      && all(!isnan, lenslettab[i].dmodel.cy)
-                                     && [1, 0, 0] != lenslettab[i].profile.cy
+                                     && [1, 0, 0] != lenslettab[i].profile.cx
                                      && [1, 0, 0] != lenslettab[i].profile.cλ   ]
 end
 
@@ -36,7 +36,7 @@ function store_result(
     profileλ0    = lenslettab[goods[1]].profile.λ0
     dmodelcx = fill(NaN, dmodelorder + 1, nblenses)
     dmodelcy = fill(NaN, dmodelorder + 1, nblenses)
-    profilecy = fill(NaN, profileorder + 1, nblenses)
+    profilecx = fill(NaN, profileorder + 1, nblenses)
     profilecl = fill(NaN, profileorder + 1, nblenses)
 
     for good in goods
@@ -44,7 +44,7 @@ function store_result(
         bboxs[:,good] .= [lens.bbox...]
         dmodelcx[:,good] .= lens.dmodel.cx
         dmodelcy[:,good] .= lens.dmodel.cy
-        profilecy[:,good] .= lens.profile.cy
+        profilecx[:,good] .= lens.profile.cx
         profilecl[:,good] .= lens.profile.cλ
     end
 
@@ -57,7 +57,7 @@ function store_result(
     write(fitsfile,
         FitsHeader("EXTNAME" => "dmodelcy", "ORDER" => dmodelorder, "L0" => dmodelλ0), dmodelcy)
     write(fitsfile,
-        FitsHeader("EXTNAME" => "profilecy", "ORDER" => profileorder, "L0" => profileλ0), profilecy)
+        FitsHeader("EXTNAME" => "profilecx", "ORDER" => profileorder, "L0" => profileλ0), profilecx)
     write(fitsfile,
         FitsHeader("EXTNAME" => "profilecl", "ORDER" => profileorder, "L0" => profileλ0), profilecl)
     write(fitsfile, FitsHeader("EXTNAME" => "laserAmp"), laserAmplitude)
@@ -88,13 +88,13 @@ function compare_results_strict(res_1, res_2)
     
     (clm_1, bboxs_1,
      dmodelorder_1, dmodelλ0_1, dmodelcx_1, dmodelcy_1,
-     profileorder_1, profileλ0_1, profilecy_1, profilecl_1,
+     profileorder_1, profileλ0_1, profilecx_1, profilecl_1,
      laserAmp_1, lampAmp_1, laserfwhm_1,
      laserdist_1, λMap_1) = res_1
      
     (clm_2, bboxs_2,
      dmodelorder_2, dmodelλ0_2, dmodelcx_2, dmodelcy_2,
-     profileorder_2, profileλ0_2, profilecy_2, profilecl_2,
+     profileorder_2, profileλ0_2, profilecx_2, profilecl_2,
      laserAmp_2, lampAmp_2, laserfwhm_2,
      laserdist_2, λMap_2) = res_2
      
@@ -125,8 +125,8 @@ function compare_results_strict(res_1, res_2)
         @warn "different profileorder: $profileorder_1 != $profileorder_2"
     profileλ0_1 ≈ profileλ0_2 || @warn "different profileλ0: $profileλ0_1 != $profileλ0_2"
      
-    if !equalOrNans(profilecy_1[:,clm], profilecy_2[:,clm])
-        @warn "different profilecy"
+    if !equalOrNans(profilecx_1[:,clm], profilecx_2[:,clm])
+        @warn "different profilecx"
     end
      
     if !equalOrNans(profilecl_1[:,clm], profilecl_2[:,clm])
@@ -161,7 +161,15 @@ function compare_results_strict(res_1, res_2)
     end
     
     if !equalOrNans(laserdist_1, laserdist_2)
-        @warn "different laserdist"
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(laserdist_1[:,i], laserdist_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn string("different laserdist, example lens $bad: ",
+                     laserdist_1[:,bad], " != ",  laserdist_2[:,bad])
     end
     
     if !equalOrNans(λMap_1, λMap_2)
@@ -169,9 +177,8 @@ function compare_results_strict(res_1, res_2)
     end
 end
 
-function get_result( (lenslettab, laserAmp, lampAmp, laserfwhm,laserdist, λMap) )
+function get_result( (lenslettab, laserAmp, lampAmp, laserfwhm,laserdist, λMap, clm) )
 
-    clm = cmpt_clm(lenslettab)
     goods = findall(clm)
     
     nblenses = length(clm)
@@ -185,7 +192,7 @@ function get_result( (lenslettab, laserAmp, lampAmp, laserfwhm,laserdist, λMap)
 
     profileorder = lenslettab[goods[1]].profile.order
     profileλ0    = lenslettab[goods[1]].profile.λ0
-    profilecy = fill(NaN, profileorder + 1, nblenses)
+    profilecx = fill(NaN, profileorder + 1, nblenses)
     profilecl = fill(NaN, profileorder + 1, nblenses)
 
     for good in goods
@@ -193,13 +200,13 @@ function get_result( (lenslettab, laserAmp, lampAmp, laserfwhm,laserdist, λMap)
         bboxs[:,good] .= [lens.bbox...]
         dmodelcx[:,good] .= lens.dmodel.cx
         dmodelcy[:,good] .= lens.dmodel.cy
-        profilecy[:,good] .= lens.profile.cy
+        profilecx[:,good] .= lens.profile.cx
         profilecl[:,good] .= lens.profile.cλ
     end
     
     (; clm, bboxs,
        dmodelorder, dmodelλ0, dmodelcx, dmodelcy,
-       profileorder, profileλ0, profilecy, profilecl,
+       profileorder, profileλ0, profilecx, profilecl,
        laserAmp, lampAmp, laserfwhm,
        laserdist, λMap)
 end
@@ -212,7 +219,7 @@ function get_result(filepath::String)
         hdubboxs = fitsfile["bboxs"]
         hdudmodelcx = fitsfile["dmodelcx"]
         hdudmodelcy = fitsfile["dmodelcy"]
-        hduprofilecy = fitsfile["profilecy"]
+        hduprofilecx = fitsfile["profilecx"]
         hduprofilecl = fitsfile["profilecl"]
         hdulaseramp = fitsfile["laserAmp"]
         hdulampamp = fitsfile["lampAmp"]
@@ -228,9 +235,9 @@ function get_result(filepath::String)
         dmodelcx = read(hdudmodelcx)
         dmodelcy = read(hdudmodelcy)
     
-        profileorder = hduprofilecy["ORDER"].integer
-        profileλ0 = hduprofilecy["L0"].float
-        profilecy = read(hduprofilecy)
+        profileorder = hduprofilecx["ORDER"].integer
+        profileλ0 = hduprofilecx["L0"].float
+        profilecx = read(hduprofilecx)
         profilecl = read(hduprofilecl)
     
         laserAmp = read(hdulaseramp)
@@ -242,86 +249,86 @@ function get_result(filepath::String)
 
         (; clm, bboxs,
            dmodelorder, dmodelλ0, dmodelcx, dmodelcy,
-           profileorder, profileλ0, profilecy, profilecl,
+           profileorder, profileλ0, profilecx, profilecl,
            laserAmp, lampAmp, laserfwhm,
            laserdist, λMap)
    end
 end
 
-function test_result_strict(result, fitspath)
-
-    (lenslettab, laserAmp, lampAmp, laserfwhm,laserdist, λMap) = result
-
-    @testset "test_result_strict" begin
-    FitsFile(fitspath) do fitsfile
-
-        nblenses = length(lenslettab)
-
-        goods = cmpt_goods(lenslettab)
-        vlm = Bool.(cmpt_vlm(lenslettab))
-        goal_vlm = Bool.(read(fitsfile[1]))
-        
-        @testset "validlensesmap" begin
-            @test begin
-                test = (vlm == goal_vlm)
-                if test == false
-                    @warn string("vlm diff nb: ", sum(xor.(vlm, goal_vlm)))
-                end
-                test
-            end
-        end
-    
-        # we need data on both sides to compare
-        both_vlm = vlm .& goal_vlm
-        both_goods = [ i for i in 1:length(lenslettab) if both_vlm[i] ]
-        
-        
-        bboxs = Vector{BoundingBox}(undef, nblenses)
-        for i in 1:nblenses
-            if vlm[i]
-                bboxs[i] = lenslettab[i].bbox
-            end
-        end
-        goal_bboxs = similar(bboxs)
-        data_goal_bboxs = read(fitsfile["bboxs"])
-        for i in 1:nblenses
-            if goal_vlm[i]
-                goal_bboxs[i] = BoundingBox(data_goal_bboxs[:,i]...)
-            end
-        end
-
-        @testset "bboxs" begin
-            @test all(both_goods) do i
-                test = bboxs[i] == goal_bboxs[i]
-                if test === false
-                    @warn string(bboxs[i], " != ", goal_bboxs[i])
-                end
-                test
-            end
-        end
-
-        @testset "dmodel" begin
-            goal_order = fitsfile["dmodelcx"]["ORDER"].integer
-            goal_λ0    = fitsfile["dmodelcx"]["L0"].float
-            goal_dmodelcx = read(fitsfile["dmodelcx"])
-            goal_dmodelcy = read(fitsfile["dmodelcy"])
-            
-            # λ0 is stored as FITS header so it cannot store exactly the value
-            # so we need to compare using ≈
-            @test all(both_goods) do i
-                     test = (   (lenslettab[i].dmodel.order == goal_order)
-                             && (lenslettab[i].dmodel.λ0 ≈ goal_λ0)
-                             && (lenslettab[i].dmodel.cx == goal_dmodelcx[:,i])
-                             && (lenslettab[i].dmodel.cy == goal_dmodelcy[:,i]))
-                     if test === false
-                        @warn string("i = ", i)
-                        @warn string(lenslettab[i].dmodel.order, " ?= ", goal_order)
-                        @warn string(lenslettab[i].dmodel.λ0, " ?≈ ", goal_λ0)
-                        @warn string(lenslettab[i].dmodel.cx, " ?= ", goal_dmodelcx[:,i])
-                        @warn string(lenslettab[i].dmodel.cy, " ?= ", goal_dmodelcy[:,i])
-                     end
-                 end
-        end
+#function test_result_strict(result, fitspath)
+#
+#    (lenslettab, laserAmp, lampAmp, laserfwhm,laserdist, λMap) = result
+#
+#    @testset "test_result_strict" begin
+#    FitsFile(fitspath) do fitsfile
+#
+#        nblenses = length(lenslettab)
+#
+#        goods = cmpt_goods(lenslettab)
+#        vlm = Bool.(cmpt_vlm(lenslettab))
+#        goal_vlm = Bool.(read(fitsfile[1]))
+#        
+#        @testset "validlensesmap" begin
+#            @test begin
+#                test = (vlm == goal_vlm)
+#                if test == false
+#                    @warn string("vlm diff nb: ", sum(xor.(vlm, goal_vlm)))
+#                end
+#                test
+#            end
+#        end
+#    
+#        # we need data on both sides to compare
+#        both_vlm = vlm .& goal_vlm
+#        both_goods = [ i for i in 1:length(lenslettab) if both_vlm[i] ]
+#        
+#        
+#        bboxs = Vector{BoundingBox}(undef, nblenses)
+#        for i in 1:nblenses
+#            if vlm[i]
+#                bboxs[i] = lenslettab[i].bbox
+#            end
+#        end
+#        goal_bboxs = similar(bboxs)
+#        data_goal_bboxs = read(fitsfile["bboxs"])
+#        for i in 1:nblenses
+#            if goal_vlm[i]
+#                goal_bboxs[i] = BoundingBox(data_goal_bboxs[:,i]...)
+#            end
+#        end
+#
+#        @testset "bboxs" begin
+#            @test all(both_goods) do i
+#                test = bboxs[i] == goal_bboxs[i]
+#                if test === false
+#                    @warn string(bboxs[i], " != ", goal_bboxs[i])
+#                end
+#                test
+#            end
+#        end
+#
+#        @testset "dmodel" begin
+#            goal_order = fitsfile["dmodelcx"]["ORDER"].integer
+#            goal_λ0    = fitsfile["dmodelcx"]["L0"].float
+#            goal_dmodelcx = read(fitsfile["dmodelcx"])
+#            goal_dmodelcy = read(fitsfile["dmodelcy"])
+#            
+#            # λ0 is stored as FITS header so it cannot store exactly the value
+#            # so we need to compare using ≈
+#            @test all(both_goods) do i
+#                     test = (   (lenslettab[i].dmodel.order == goal_order)
+#                             && (lenslettab[i].dmodel.λ0 ≈ goal_λ0)
+#                             && (lenslettab[i].dmodel.cx == goal_dmodelcx[:,i])
+#                             && (lenslettab[i].dmodel.cy == goal_dmodelcy[:,i]))
+#                     if test === false
+#                        @warn string("i = ", i)
+#                        @warn string(lenslettab[i].dmodel.order, " ?= ", goal_order)
+#                        @warn string(lenslettab[i].dmodel.λ0, " ?≈ ", goal_λ0)
+#                        @warn string(lenslettab[i].dmodel.cx, " ?= ", goal_dmodelcx[:,i])
+#                        @warn string(lenslettab[i].dmodel.cy, " ?= ", goal_dmodelcy[:,i])
+#                     end
+#                 end
+#        end
 #
 #        @testset "profile" begin
 #            goal_order = fitsfile["profilecy"]["ORDER"].integer
@@ -375,93 +382,93 @@ function test_result_strict(result, fitspath)
 #        @testset "λMap" begin
 #            @test λMap == read(fitsfile["lambdaMap"])
 #        end
-    end
-    end
-end
+#    end
+#    end
+#end
 
-function test_result_approx(result, fitspath)
-
-    (lenslettab, laserAmp, lampAmp, laserfwhm,laserdist, λMap) = result
-
-    @testset "test_result_strict" begin
-    FitsFile(fitspath) do fitsfile
-
-        goods = cmpt_goods(lenslettab)
-
-        @testset "validlensesmap" begin
-            vlm = cmpt_vlm(lenslettab)
-            goal_vlm = read(fitsfile[1])
-            @test vlm == goal_vlm
-        end
-
-        @testset "bboxs" begin
-            goal_bboxs = read(fitsfile["bboxs"])
-            for i in goods
-                @test lenslettab[i].bbox.xmin == goal_bboxs[1,i]
-                @test lenslettab[i].bbox.xmax == goal_bboxs[2,i]
-                @test lenslettab[i].bbox.ymin == goal_bboxs[3,i]
-                @test lenslettab[i].bbox.ymax == goal_bboxs[4,i]
-            end
-        end
-
-        @testset "dmodel" begin
-            goal_order = fitsfile["dmodelcx"]["ORDER"].integer
-            goal_λ0    = fitsfile["dmodelcx"]["L0"].float
-            goal_dmodelcx = read(fitsfile["dmodelcx"])
-            goal_dmodelcy = read(fitsfile["dmodelcy"])
-            for i in goods
-                @test lenslettab[i].dmodel.order == goal_order
-                @test lenslettab[i].dmodel.λ0 ≈ goal_λ0
-                for o in 1:length(lenslettab[1].dmodel.cx)
-                    @test isapprox(lenslettab[i].dmodel.cx[o], goal_dmodelcx[o,i]; atol=0.01)
-                    @test isapprox(lenslettab[i].dmodel.cy[o], goal_dmodelcy[o,i]; atol=0.01)
-                end
-            end
-        end
-
-        @testset "profile" begin
-            goal_order = fitsfile["profilecy"]["ORDER"].integer
-            goal_λ0    = fitsfile["profilecy"]["L0"].float
-            goal_profilecy = read(fitsfile["profilecy"])
-            goal_profilecl = read(fitsfile["profilecl"])
-            for i in goods
-                @test lenslettab[i].profile.order == goal_order
-                @test lenslettab[i].profile.λ0 ≈ goal_λ0
-                for o in 1:length(lenslettab[1].profile.cy)
-                    @test isapprox(lenslettab[i].profile.cy[o], goal_profilecy[o,i]; atol=0.01)
-                    @test isapprox(lenslettab[i].profile.cλ[o], goal_profilecl[o,i]; atol=0.01)
-                end
-            end
-        end
-
-        @testset "laserAmp" begin
-            goal_LaserAmp = read(fitsfile["laserAmp"])
-            for i in goods, o in 1:length(laserAmp[:,1])
-                @test isapprox(laserAmp[o,i], goal_LaserAmp[o,i]; atol=0.01)
-            end
-        end
-
-        @testset "laserfwhm" begin
-            goal_LaserFWHM = read(fitsfile["laserFWHM"])
-            for i in goods, o in 1:length(laserfwhm[:,1])
-                @test isapprox(laserfwhm[o,i], goal_LaserFWHM[o,i]; atol=0.05)
-            end
-        end
-
-        @testset "laserdist" begin
-            goal_laserdist = read(fitsfile["laserDist"])
-            @test size(laserdist) == size(goal_laserdist)
-            for y in size(laserdist, 2), x in size(laserdist, 1)
-                @test laserdist[x,y] ≈ goal_laserdist[x,y]
-            end
-        end
-
-        @testset "λMap" begin
-            @test λMap ≈ read(fitsfile["lambdaMap"])
-        end
-    end
-    end
-end
+#function test_result_approx(result, fitspath)
+#
+#    (lenslettab, laserAmp, lampAmp, laserfwhm,laserdist, λMap) = result
+#
+#    @testset "test_result_strict" begin
+#    FitsFile(fitspath) do fitsfile
+#
+#        goods = cmpt_goods(lenslettab)
+#
+#        @testset "validlensesmap" begin
+#            vlm = cmpt_vlm(lenslettab)
+#            goal_vlm = read(fitsfile[1])
+#            @test vlm == goal_vlm
+#        end
+#
+#        @testset "bboxs" begin
+#            goal_bboxs = read(fitsfile["bboxs"])
+#            for i in goods
+#                @test lenslettab[i].bbox.xmin == goal_bboxs[1,i]
+#                @test lenslettab[i].bbox.xmax == goal_bboxs[2,i]
+#                @test lenslettab[i].bbox.ymin == goal_bboxs[3,i]
+#                @test lenslettab[i].bbox.ymax == goal_bboxs[4,i]
+#            end
+#        end
+#
+#        @testset "dmodel" begin
+#            goal_order = fitsfile["dmodelcx"]["ORDER"].integer
+#            goal_λ0    = fitsfile["dmodelcx"]["L0"].float
+#            goal_dmodelcx = read(fitsfile["dmodelcx"])
+#            goal_dmodelcy = read(fitsfile["dmodelcy"])
+#            for i in goods
+#                @test lenslettab[i].dmodel.order == goal_order
+#                @test lenslettab[i].dmodel.λ0 ≈ goal_λ0
+#                for o in 1:length(lenslettab[1].dmodel.cx)
+#                    @test isapprox(lenslettab[i].dmodel.cx[o], goal_dmodelcx[o,i]; atol=0.01)
+#                    @test isapprox(lenslettab[i].dmodel.cy[o], goal_dmodelcy[o,i]; atol=0.01)
+#                end
+#            end
+#        end
+#
+#        @testset "profile" begin
+#            goal_order = fitsfile["profilecy"]["ORDER"].integer
+#            goal_λ0    = fitsfile["profilecy"]["L0"].float
+#            goal_profilecy = read(fitsfile["profilecy"])
+#            goal_profilecl = read(fitsfile["profilecl"])
+#            for i in goods
+#                @test lenslettab[i].profile.order == goal_order
+#                @test lenslettab[i].profile.λ0 ≈ goal_λ0
+#                for o in 1:length(lenslettab[1].profile.cy)
+#                    @test isapprox(lenslettab[i].profile.cy[o], goal_profilecy[o,i]; atol=0.01)
+#                    @test isapprox(lenslettab[i].profile.cλ[o], goal_profilecl[o,i]; atol=0.01)
+#                end
+#            end
+#        end
+#
+#        @testset "laserAmp" begin
+#            goal_LaserAmp = read(fitsfile["laserAmp"])
+#            for i in goods, o in 1:length(laserAmp[:,1])
+#                @test isapprox(laserAmp[o,i], goal_LaserAmp[o,i]; atol=0.01)
+#            end
+#        end
+#
+#        @testset "laserfwhm" begin
+#            goal_LaserFWHM = read(fitsfile["laserFWHM"])
+#            for i in goods, o in 1:length(laserfwhm[:,1])
+#                @test isapprox(laserfwhm[o,i], goal_LaserFWHM[o,i]; atol=0.05)
+#            end
+#        end
+#
+#        @testset "laserdist" begin
+#            goal_laserdist = read(fitsfile["laserDist"])
+#            @test size(laserdist) == size(goal_laserdist)
+#            for y in size(laserdist, 2), x in size(laserdist, 1)
+#                @test laserdist[x,y] ≈ goal_laserdist[x,y]
+#            end
+#        end
+#
+#        @testset "λMap" begin
+#            @test λMap ≈ read(fitsfile["lambdaMap"])
+#        end
+#    end
+#    end
+#end
 
 function keep_numbers(data)
     data |> Fix1(filter, !isnan) |> Fix1(filter, !isinf)
@@ -479,16 +486,16 @@ function get_mean_std(data)
 end
 
 function get_result_summary(
-    vlm, bboxs,
-    dmodelorder, dmodelλ0, dmodelcx, dmodelcy,
-    profileorder, profileλ0, profilecy, profilecl,
-    laserAmp, lampAmp, laserfwhm,
-    laserdist, λMap
+    (; clm, bboxs,
+       dmodelorder, dmodelλ0, dmodelcx, dmodelcy,
+       profileorder, profileλ0, profilecx, profilecl,
+       laserAmp, lampAmp, laserfwhm,
+       laserdist, λMap)
 )
 
-    goods = findall(==(1), vlm)
+    goods = findall(clm)
     
-    ratiogoods = length(goods) / length(vlm)
+    ratiogoods = length(goods) / length(clm)
     
     # disp model
     
@@ -506,10 +513,10 @@ function get_result_summary(
     
     # profile model
     
-    quantilesProfilecy = fill(NaN, (21, profileorder+1))
+    quantilesProfilecx = fill(NaN, (21, profileorder+1))
     for a in 1:profileorder+1
-        data = profilecy[a,goods]
-        quantilesProfilecy[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
+        data = profilecx[a,goods]
+        quantilesProfilecx[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
     
     quantilesProfilecl = fill(NaN, (21, profileorder+1))
@@ -563,7 +570,7 @@ function get_result_summary(
 
     (; ratiogoods,
        dmodelorder, dmodelλ0, quantilesDmodelcx, quantilesDmodelcy,
-       profileorder, profileλ0, quantilesProfilecy, quantilesProfilecl,
+       profileorder, profileλ0, quantilesProfilecx, quantilesProfilecl,
        medianMadLasersAmps,
        medianMadLasersFWHMs,
        medianMadLampAmp,
@@ -681,11 +688,11 @@ end
 #   end
 #end
 
-function display_summary(sum, io=stdout)
-    foreach(keys(sum)) do k
+function display_summary(summary, io=stdout)
+    foreach(keys(summary)) do k
         print(io, "========== ")
         println(io, k)
-        show(io, MIME"text/plain"(),sum[k])
+        show(io, MIME"text/plain"(), summary[k])
         println(io)
     end
 end
