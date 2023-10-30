@@ -63,18 +63,28 @@ end
     (::LikelihoodDisp)(x::Vector{Float64}) -> Float64
     compute the likelihood for a given lenslet for the parameters `x`
 """
-function (self::LikelihoodDisp)(x::Vector{T}) ::Float64 where {T<:Real}
-    fwhm ::Vector{T} = x[1:self.nλ]
-    cx   ::Vector{T} = x[self.nλ+1 : 2 : end]
-    cy   ::Vector{T} = x[self.nλ+2 : 2 : end]
+function (self::LikelihoodDisp)(V::Vector{T}) ::Float64 where {T<:Real}
+    
+    startfwhm = 1
+    endfwhm   = self.nλ
+    startcx   = endfwhm + 1
+    endcx     = startcx + self.lmodel.dmodel.order
+    startcy   = endcx   + 1
+    endcy     = startcy + self.lmodel.dmodel.order
+    
+    fwhm = V[startfwhm : endfwhm]
+    cx   = V[startcx   : endcx]
+    cy   = V[startcy   : endcy]
+    
     self(fwhm, cx, cy)
 end
 
 function (self::LikelihoodDisp)(
     fwhm::Vector{T}, cx::Vector{T}, cy::Vector{T}
-)::Float64 where {T<:Real}
+) ::Float64 where {T<:Real}
 
     updateDispModel(self.lmodel.dmodel, cx, cy)
+    
     (rx, ry) = axes(self.lmodel.bbox) # extracting bounding box range
     m = Zygote.Buffer(self.spots);
     @inbounds for (i,λ) in enumerate(self.wavelengths)  # for each laser
@@ -83,11 +93,15 @@ function (self::LikelihoodDisp)(
         m[:,:,i] = GaussianModel2.(r, fwhm[i])
     end
     spots = copy(m)
+    
     Zygote.@ignore self.amplitude .= updateAmplitude(self.nλ, spots, self.data, self.weight)
+    any(isnan, self.amplitude) && error("NaN amplitude: \"$(self.amplitude)\"")
+    
     sumspot = zeros(Float64, size(self.lmodel.bbox))
     @inbounds for i in 1:self.nλ
         sumspot += self.amplitude[i] * spots[:,:,i]
     end
+    
     return Float64.(sum(self.weight .* (self.data .- sumspot).^2))
 end
  

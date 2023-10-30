@@ -1,73 +1,3 @@
-#"""
-#    GaussianModel(A,fwhm,x,y)
-#
-#Compute the value  at position (x,y) of a 2D centered Gaussian
-#* `fwhm` : full-width at half maximum
-#* `A` : amplitude at (x,y) = (0,0)
-#* `x`, `y`: sampled postions
-#"""
-#function GaussianModel(A::Float64, fwhm::Float64, x::Float64, y::Float64)
-#    local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
-#    return A * exp(-(x^2 + y^2) / (2 * (fwhm * fwhm2sigma )^2));
-#end
-#
-#"""
-#    GaussianModel(A::Float64, fwhm::Float64, x::AbstractArray)
-#
-#Compute the value at position x 1D centered Gaussian
-#* `A` : amplitude at x = 0
-#* `fwhm` : full-width at half maximum
-#* `x`: array of the sampled position
-#"""
-#function GaussianModel(A::Float64, fwhm::Float64, x::AbstractArray)
-#    local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
-#    return A .* exp.(.-(x.^2) ./ (2 * (fwhm * fwhm2sigma )^2));
-#end
-#
-#"""
-#    GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
-#
-#Compute the value at position sqrt(r) 1D centered Gaussian
-#* `A` : amplitude at x = 0
-#* `fwhm` : full-width at half maximum
-#* `x`: array of the squared sampled position
-#
-#Equivalent to `GaussianModel(A, fwhm, sqrt.(x))`
-#"""
-#function GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
-#    local fwhm2sigma = Float64(1) / (2 * sqrt(2 * log(2.)))
-#    return A .* exp.(-x ./ (2 * (fwhm * fwhm2sigma )^2));
-#end
-#
-#"""
-#    GaussianModel2(A::Float64, fwhm::Float64, x::Real)
-#
-#Compute the value at position sqrt(x) 1D centered Gaussian
-#* `A` : amplitude at x = 0
-#* `fwhm` : full-width at half maximum
-#* `x`: sampled position
-#
-#Equivalent to `GaussianModel(A, fwhm, sqrt(x))`
-#"""
-#function GaussianModel2(A::T, fwhm::T, x::T) where (T<:Real)
-#    local fwhm2sigma = T(1 / (2 * sqrt(2 * log(2.))))
-#    return A * exp(-x / (2 * (fwhm * fwhm2sigma )^2));
-#end
-
-#"""
-#    GaussianModel2(fwhm::Float64, x::AbstractArray)
-#
-#Compute the value at position sqrt(r) 1D centered Gaussian
-#* `fwhm` : full-width at half maximum
-#* `x`: array of the squared sampled position
-#
-#Equivalent to `GaussianModel(1.,fwhm, sqrt.(x))`
-#"""
-#function GaussianModel2(fwhm::T, x::AbstractArray{T})where (T<:Real)
-#    local fwhm2sigma = T(1 / (2 * sqrt(2 * log(2.))))
-#    return exp.(-x ./ (2 * (fwhm * fwhm2sigma )^2));
-#end
-
 """
 Compute the value at position sqrt(r) 1D centered Gaussian
 * `x`:  squared sampled position
@@ -79,77 +9,6 @@ function GaussianModel2(x::T, fwhm::T) where {T<:Real}
 end
 
 GaussianModel2(tpl::Tuple{T,T}) where {T<:Real} = GaussianModel2(tpl[1], tpl[2])
-
-#"""
-#    GaussianModel2!(ret::AbstractArray{T},fwhm::Float64, x::AbstractArray)
-#
-#Compute inplace the value at position sqrt(r) 1D centered Gaussian
-#* `ret` : output array
-#* `fwhm` : full-width at half maximum
-#* `x`:  squared sampled position
-#
-#Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
-#"""
-#function GaussianModel2!(ret::AbstractArray{T},fwhm, x::AbstractArray{T}) where (T<:Real)
-#        @. ret = exp(-x / T(2 * (fwhm * 1 / (2 * sqrt(2 * log(2.))) )^2));
-#        nothing
-#end
-
-#"""
-#    GaussianSpotsCost(data::Array{Float64,2}, weight::Array{Float64,2}, lmodel::LensletModel,  laser::LaserModel,A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
-#
-#Compute a weighted quadratic cost of a lenslet model :
-#cost = weight .* || data - model ||^2
-#* `lmodel`:  model of the lenslet
-#* `A` : 1D array containing the amplitude  of all Gaussian spots
-#* `fwhm` : 1D array containing the fwhm  of all Gaussian spots
-#* `C` : 2D array containing the chromatic law coefficients.
-#"""
-#function GaussianSpotsCost(data::Array{Float64,2}, weight::Array{Float64,2}, lmodel::LensletModel,  laser::LaserModel,A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
-#    UpdateDispModel(lmodel.dmodel, C);
-#    UpdateLaserModel(laser,A,fwhm);
-#    s = 0.;
-#    for I in CartesianIndices(lmodel.bbox)
-#        spotsmodel = 0;
-#        for (index, λ) in enumerate(laser.λlaser)
-#            (mx, my)  = lmodel.dmodel(λ);
-#            spotsmodel += GaussianModel(laser.amplitude[index], laser.fwhm[index], I[1] - mx, I[2] - my)
-#        end
-#        s += weight[I] * ( data[I] - spotsmodel)^2;
-#    end
-#    return s;
-#end
-
-
-#"""
-#    GaussianSpotsModel(lmodel::LensletModel,laser::LaserModel, A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
-#
-#Build the model of a lenslet
-#* `lmodel`:  model of the lenslet
-#* `A` : 1D array containing the amplitude  of all Gaussian spots
-#* `fwhm` : 1D array containing the fwhm  of all Gaussian spots
-#* `C` : 2D array containing the chromatic law coefficients.
-#"""
-#function GaussianSpotsModel(lmodel::LensletModel,laser::LaserModel, A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
-#    UpdateDispModel(lmodel.dmodel, C);
-#    UpdateLaserModel(laser,A,fwhm);
-#    bbox = lmodel.dmodel;
-#    model = zeros(Float64,round(bbox).xmax-round(bbox).xmin+1,round(bbox).ymax-round(bbox).ymin+1);
-#    t = Zygote.Buffer(model);
-#    t[:] = model[:];
-#    for I in CartesianIndices(bbox)
-#        for (index, λ) in enumerate(laser.λlaser)
-#            (mx, my)  = lmodel.dmodel(λ);
-#            t[I[1],I[2]] += GaussianModel(laser.amplitude[index], laser.fwhm[index], I[1] - mx, I[2] - my)
-#        end
-#    end
-#    model =  Zygote.copy(t);
-#end
-#
-
-
-
-# SimpleGauss(x,center::Float64,fwhm::Float64) = exp(-(x-center)^2 / (2 * (fwhm * Float64(1) / (2 * sqrt(2 * log(2.))) )^2));
 
 
  """
@@ -251,18 +110,18 @@ function fitSpectralLaw(laserdata::Matrix{T},
 end
 
 function fitSpectralLawAndProfile(laserdata::Matrix{T},
-    laserweights::Matrix{T},
-    lampdata::Matrix{T},
-    lampweights::Matrix{T},
-    λlaser::Array{Float64,1},
-    lensletsize::NTuple{4, Int},
-    position::Matrix{Float64},
-    cxinit::Vector{Float64},
-    cyinit::Vector{Float64},
-    fwhminit::Array{Float64,1},
-    wavelengthrange::AbstractArray{Float64,1}
-    ; validlensmap ::AbstractVector{Bool} = trues(size(position, 1)),
-      profileorder::Int = 2
+    laserweights ::Matrix{T},
+    lampdata    ::Matrix{T},
+    lampweights ::Matrix{T},
+    λlaser      ::Vector{Float64},
+    lensletsize ::NTuple{4,Int},
+    position ::Matrix{Float64},
+    cxinit   ::Vector{Float64},
+    cyinit   ::Vector{Float64},
+    fwhminit ::Vector{Float64},
+    wavelengthrange ::AbstractVector{Float64}
+    ; validlensmap  ::AbstractVector{Bool} = trues(size(position, 1)),
+      profileorder  ::Int = 2
     ) where T<:Real
 
     numberoflenslet = size(position,1)
@@ -295,26 +154,22 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
         lenslettab[i] = LensletModel(λ0,nλ-1, profileorder,lensletbox);
 
         # Fit spectral law
-
-        Cinit= [ [position[i,1] cxinit...]; [position[i,2] cyinit...] ];
-        xinit = vcat([fwhminit[:],Cinit[:]]...);
-        laserDataView = view(laserdata, lensletbox);
-        laserWeightView = view(laserweights,lensletbox);
-        spectrallkl = LikelihoodDisp(lenslettab[i],λlaser, laserDataView,laserWeightView);
-        cost(x::Vector{Float64}) = spectrallkl(x);
-        local xopt
-        try
-            xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
-        catch e
-            @debug "Error on lenslet  $i" exception=(e, catch_backtrace())
-            continue
-        end
+        xinit = [ fwhminit..., position[i,1], cxinit..., position[i,2], cyinit... ]
+        laserDataView   = view(laserdata,    lensletbox)
+        laserWeightView = view(laserweights, lensletbox)
+        spectrallkl = LikelihoodDisp(lenslettab[i], λlaser, laserDataView, laserWeightView)
+        xopt =
+            try vmlmb(spectrallkl, xinit; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
+            catch e
+                @debug "Error on lenslet  $i" exception=(e, catch_backtrace())
+                continue
+            end
         fwhm = xopt[1:nλ]
         laserAmplitude[:,i] = spectrallkl.amplitude;
         laserfwhm[:,i] = fwhm
-        (dist, pixλ) = distanceMap(wavelengthrange,lenslettab[i]);
-        view(laserdist,lensletbox) .= dist;
-        view(λMap,lensletbox) .= pixλ;
+        (dist, pixλ) = distanceMap(wavelengthrange, lenslettab[i]);
+        view(laserdist, lensletbox) .= dist;
+        view(λMap, lensletbox) .= pixλ;
 
         # Fit profile
 
