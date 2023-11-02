@@ -143,6 +143,120 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
 end
 
+function ffitSpectralLawAndProfile(laserdata::Matrix{T},
+    laserweights ::Matrix{T},
+    lampdata    ::Matrix{T},
+    lampweights ::Matrix{T},
+    λlaser      ::Vector{Float64},
+    lensletsize ::NTuple{4,Int},
+    position ::Matrix{Float64},
+    cxinit   ::Vector{Float64},
+    cyinit   ::Vector{Float64},
+    fwhminit ::Vector{Float64},
+    wavelengthrange ::AbstractVector{Float64}
+    ; validlensmap  ::AbstractVector{Bool} = trues(size(position, 1)),
+      profileorder  ::Int = 2
+    ) where T<:Real
+
+    numberoflenslet = size(position,1)
+    
+    numberoflenslet == length(validlensmap) || throw(DimensionMismatch(
+        "size of `position` incompatible with size of `validlensmap`"))
+    
+    length(λlaser) == length(fwhminit) || throw(DimensionMismatch(
+        "size of `λlaser` incompatible with size of `fwhminit`"))
+    
+    # map of the computed lenses (i.e the non-catch-error ones)
+    computedlensmap ::Vector{Bool} = falses(numberoflenslet)
+    
+    nλ = length(λlaser)
+    order = nλ - 1
+    λ0 = mean(λlaser) # reference
+    λpowers = [ ((λ-λ0)/λ0)^o  for o in 1:order, λ in λlaser ]
+
+    (dxmin, dxmax,dymin,dymax) = lensletsize
+    lenslettab = Vector{LensletModel}(undef,numberoflenslet)
+    laserAmplitude = Matrix{Float64}(undef, nλ, numberoflenslet)
+    lampAmplitude  = Matrix{Float64}(undef, 41, numberoflenslet)
+    laserfwhm = Matrix{Float64}(undef, nλ, numberoflenslet)
+    laserdist = Matrix{Float64}(undef, 2048, 2048)
+    λMap = Matrix{Float64}(undef, 2048, 2048)
+    
+    progress = Progress(numberoflenslet; showspeed=true)
+    Threads.@threads for i in findall(validlensmap)
+
+        lensletbox = BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax,
+                                 position[i,2]-dymin, position[i,2]+dymax)
+        # we use RoundNearestTiesUp to enforce box size (special case of `.5` floats)
+        lensletbox = round(Int, lensletbox, RoundNearestTiesUp);
+
+        
+
+        # Fit spectral law
+        xinit = [ fwhminit..., position[i,1], cxinit..., position[i,2], cyinit... ]
+        laserDataView   = view(laserdata,    lensletbox)
+        laserWeightView = view(laserweights, lensletbox)
+        
+        wavelamplkl = WaveLampLikelihood(λpowers, lensletbox, laserDataView, laserWeightView)
+        
+        xopt =
+            try vmlmb(wavelamplkl, xinit; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
+            catch e
+                @debug "Error on lenslet $i" exception=(e, catch_backtrace())
+                continue
+            end
+        laserAmplitude[:,i] .= wavelamplkl.last_amp
+        laserfwhm[:,i] .= wavelamplkl.last_fwhm
+        
+        lenslettab[i] = LensletModel(
+            lensletbox,
+            DispModel(λ0, order, wavelamplkl.last_cx, wavelamplkl.last_cy),
+            ProfileModel(λ0, order))
+        
+        (lensletdist, lensletpixλ) = distanceMap(wavelengthrange, lenslettab[i])
+        laserdist[lensletbox] .= lensletdist
+        λMap[lensletbox] .= lensletpixλ
+
+        # Fit profile
+
+        lampDataView = view(lampdata, lensletbox);
+        lampWeightView = view(lampweights,lensletbox);
+
+        profilecoefs = zeros(Float64, 2, profileorder+1)
+        profilecoefs[2,:] .= [2.3, 2.5, 2.9] # maximum(fwhm)
+        profilecoefs[1,1] = lenslettab[i].dmodel.cx[1]
+
+        pmodel = ProfileModel(λ0, profileorder, profilecoefs[1,:], profilecoefs[2,:])
+        profilelkl = LikelihoodProfile(pmodel, lampDataView, lampWeightView, lensletpixλ, lensletbox)
+        costpr(x::Matrix{Float64}) = profilelkl(x);
+        try
+            vmlmb!(costpr, profilecoefs; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
+        catch e
+            @debug "Error on lenslet  $i" exception=(e, catch_backtrace())
+            continue
+        end
+        pmodel = ProfileModel(λ0, profileorder, profilecoefs[1,:], profilecoefs[2,:])
+        lenslettab[i] = LensletModel(lensletbox, lenslettab[i].dmodel, pmodel)
+
+        profile = @. GaussianModel2(pmodel(lensletpixλ,($(axes(lensletbox,1)))))
+        profile = profile ./ sum(profile,dims=1)
+        try
+            lampAmplitude[:,i] .= updateAmplitudeAndBackground(profile,lampDataView,lampWeightView)
+        catch e
+            @debug "Error on lenslet  $i" exception=(e, catch_backtrace())
+            continue
+        end
+        
+        # if we are here the computation was complete
+        computedlensmap[i] = true
+        
+        next!(progress)
+    end
+    finish!(progress)
+   
+    (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
+end
+
 
 function distanceMap(wavelengthrange::AbstractArray{Float64,1},
                     lenslet::LensletModel

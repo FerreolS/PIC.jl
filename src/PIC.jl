@@ -26,6 +26,7 @@ include("ProfileModel.jl")
 include("LensletModel.jl")
 include("LikelihoodDisp.jl")
 include("LikelihoodProfile.jl")
+include("WaveLampLikelihood.jl")
 include("fit.jl")
 
 end
