@@ -1,6 +1,9 @@
 using EasyFITS, DelimitedFiles, StatsBase
 using Base: Fix1, Fix2
 
+# set your own
+cd("/home/antoine/Documents/pictest")
+
 ENV["JULIA_DEBUG"] = Main.PIC
 
 T = Float32
@@ -41,17 +44,17 @@ lensletsize = (dxmin, dxmax,dymin,dymax);
 
 validlensmap = ((cx0 .- dxmin).>0) .&  ((cx0 .+ dxmax).<2048) .&  ((cy0 .- dymin).>0) .&  ((cy0 .+ dymax).<2048);
 
-laserData = readfits(Array{Float64}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12-19-51.620_IFS_WAVE,LAMP_1.650726s_10f_OBS_YJ_IFU.fits")
+laserData = readfits(Array{Float64}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12:19:51.620_IFS_WAVE,LAMP_1.650726s_10f_OBS_YJ_IFU.fits")
 
-lampData = readfits(Array{Float64}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12-20-56.576_IFS_SPECPOS,LAMP_1.650726s_10f_OBS_YJ_IFU.fits")
+lampData = readfits(Array{Float64}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12:20:56.576_IFS_SPECPOS,LAMP_1.650726s_10f_OBS_YJ_IFU.fits")
 
 #laserData = reshape(mean(laserData; dims=3), (2048, 2048))
 #lampData  = reshape(mean(lampData;  dims=3), (2048, 2048))
 
 
-laserWeights = readfits(Array{Float64}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12-19-51.620_IFS_WAVE,LAMP_1.650726s_10f_OBS_YJ_IFU.fits", ext="weights")
+laserWeights = readfits(Array{Float64}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12:19:51.620_IFS_WAVE,LAMP_1.650726s_10f_OBS_YJ_IFU.fits", ext="weights")
 
-lampWeights = readfits(Array{Float64}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12-20-56.576_IFS_SPECPOS,LAMP_1.650726s_10f_OBS_YJ_IFU.fits"; ext="weights")
+lampWeights = readfits(Array{Float64}, "2580479/reduced_wavespecpos/reduced_SPHER.2020-01-09T12:20:56.576_IFS_SPECPOS,LAMP_1.650726s_10f_OBS_YJ_IFU.fits"; ext="weights")
 
 
 

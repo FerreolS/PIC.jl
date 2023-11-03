@@ -172,7 +172,7 @@ function ffitSpectralLawAndProfile(laserdata::Matrix{T},
     nλ = length(λlaser)
     order = nλ - 1
     λ0 = mean(λlaser) # reference
-    λpowers = [ ((λ-λ0)/λ0)^o  for o in 1:order, λ in λlaser ]
+    poweredλs = [ ((λ-λ0)/λ0)^o  for o in 1:order, λ in λlaser ]
 
     (dxmin, dxmax,dymin,dymax) = lensletsize
     lenslettab = Vector{LensletModel}(undef,numberoflenslet)
@@ -183,21 +183,19 @@ function ffitSpectralLawAndProfile(laserdata::Matrix{T},
     λMap = Matrix{Float64}(undef, 2048, 2048)
     
     progress = Progress(numberoflenslet; showspeed=true)
-    Threads.@threads for i in findall(validlensmap)
+    Threads.@threads for i in findall(validlensmap)[1:100:end]
 
         lensletbox = BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax,
                                  position[i,2]-dymin, position[i,2]+dymax)
         # we use RoundNearestTiesUp to enforce box size (special case of `.5` floats)
         lensletbox = round(Int, lensletbox, RoundNearestTiesUp);
 
-        
-
         # Fit spectral law
         xinit = [ fwhminit..., position[i,1], cxinit..., position[i,2], cyinit... ]
         laserDataView   = view(laserdata,    lensletbox)
         laserWeightView = view(laserweights, lensletbox)
         
-        wavelamplkl = WaveLampLikelihood(λpowers, lensletbox, laserDataView, laserWeightView)
+        wavelamplkl = WaveLampLikelihood(poweredλs, lensletbox, laserDataView, laserWeightView)
         
         xopt =
             try vmlmb(wavelamplkl, xinit; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
@@ -207,11 +205,6 @@ function ffitSpectralLawAndProfile(laserdata::Matrix{T},
             end
         laserAmplitude[:,i] .= wavelamplkl.last_amp
         laserfwhm[:,i] .= wavelamplkl.last_fwhm
-        
-        lenslettab[i] = LensletModel(
-            lensletbox,
-            DispModel(λ0, order, wavelamplkl.last_cx, wavelamplkl.last_cy),
-            ProfileModel(λ0, order))
         
         (lensletdist, lensletpixλ) = distanceMap(wavelengthrange, lenslettab[i])
         laserdist[lensletbox] .= lensletdist
@@ -284,6 +277,38 @@ function distanceMap(wavelengthrange::AbstractArray{Float64,1},
     end
     return (dist,pixλ)
 end
+
+function distanceMap(wavelengthrange::AbstractArray{Float64,1},
+                    lenslet::LensletModel
+                    )
+    bbox = lenslet.bbox;
+    dist = ones(Float64,size(round(bbox))).*1000;
+    pixλ = ones(Float64,size(round(bbox)));
+    (ax,ay) = axes(bbox)
+    previous_index = 0;
+    for I in CartesianIndices(dist)
+        previous_index = max(1,previous_index-5);
+        for  (index,λ) in enumerate(wavelengthrange[previous_index:end])
+            (mx, my)  = lenslet.dmodel(λ)
+            rx = ax[I[1]]-mx;
+            ry = ay[I[2]]-my;
+            r = sign(rx) * sqrt(rx^2 + ry^2);
+            if abs(r) < abs(dist[I[1],I[2]])
+                dist[I[1],I[2]] = r;
+                pixλ[I[1],I[2]] = λ;
+            else
+                previous_index = previous_index + index-1;
+                break
+            end
+        end
+    end
+    return (dist,pixλ)
+end
+
+function compute_distance_map(
+    box::BoundingBox{Int}, wavelengthrange::AbstractArray{Float64,1}, cx::Vector{Float64}
+    
+)
 
 function updateAmplitude(profile,data::Matrix{T},weight::Matrix{T}) where T<:AbstractFloat
     A = similar(data)

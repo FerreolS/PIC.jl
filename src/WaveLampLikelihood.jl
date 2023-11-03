@@ -1,7 +1,7 @@
 struct WaveLampLikelihood{ Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float64} }
     order ::Int
     nλ ::Int
-    λpowers ::Matrix{Float64}
+    poweredλs ::Matrix{Float64}
     box ::BoundingBox{Int}
     data ::Md
     weights ::Mw
@@ -12,12 +12,12 @@ struct WaveLampLikelihood{ Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float
     last_amp  ::Vector{Float64}
     
     function WaveLampLikelihood{Md,Mw}(
-        order, nλ, λpowers, box, data, weights, last_fwhm, last_cx, last_cy, last_amp
+        order, nλ, poweredλs, box, data, weights, last_fwhm, last_cx, last_cy, last_amp
     ) where { Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float64} }
     
         nλ > order || throw(ArgumentError("`order` must be strictly less than `nλ`"))
-        size(λpowers) == (order, nλ) || throw(DimensionMismatch(
-            "size of `λpowers` must be `(order, nλ)`"))
+        size(poweredλs) == (order, nλ) || throw(DimensionMismatch(
+            "size of `poweredλs` must be `(order, nλ)`"))
         size(box) == size(data) || throw(DimensionMismatch(
             "size of `box` must match the size of `data`"))
         size(data) == size(weights) || throw(DimensionMismatch(
@@ -31,22 +31,22 @@ struct WaveLampLikelihood{ Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float
         length(last_amp) == nλ || throw(DimensionMismatch(
             "length of `last_amp` must be `nλ`"))
         
-        new{Md,Mw}(order, nλ, λpowers, box, data, weights, last_fwhm, last_cx, last_cy, last_amp)
+        new{Md,Mw}(order, nλ, poweredλs, box, data, weights, last_fwhm, last_cx, last_cy, last_amp)
     end
 end
 
 function WaveLampLikelihood(
-    λpowers ::Matrix{Float64}, box::BoundingBox{Int}, data::Md, weights::Mw
+    poweredλs ::Matrix{Float64}, box::BoundingBox{Int}, data::Md, weights::Mw
 ) where { Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float64} }
     
-    (order, nλ) = size(λpowers)
+    (order, nλ) = size(poweredλs)
     last_fwhm = Vector{Float64}(undef, nλ)
     last_cx   = Vector{Float64}(undef, order + 1)
     last_cy   = Vector{Float64}(undef, order + 1)
     last_amp  = Vector{Float64}(undef, nλ)
     
     WaveLampLikelihood{Md,Mw}(
-        order, nλ, λpowers, box, data, weights, last_fwhm, last_cx, last_cy, last_amp)
+        order, nλ, poweredλs, box, data, weights, last_fwhm, last_cx, last_cy, last_amp)
 end
 
 function (self::WaveLampLikelihood)(V::Vector{Float64}) ::Float64
@@ -69,7 +69,7 @@ end
 function (self::WaveLampLikelihood)(
     fwhm::Vector{Float64}, cx::Vector{Float64}, cy::Vector{Float64}
 ) ::Float64
- 
+
     Zygote.@ignore begin
         self.last_fwhm .= fwhm
         self.last_cx   .= cx
@@ -80,30 +80,35 @@ function (self::WaveLampLikelihood)(
     end
         
     (xs, ys) = axes(self.box)
-    zygeachspot = Zygote.Buffer(Array{Float64}(undef, size(self.data)..., self.nλ))
-    for i in 1:self.nλ
     
-        # center of the laser spot
-        spot_ctr_x = cx[1] + sum(cx[2:end] .* self.λpowers[:,i])
-        spot_ctr_y = cy[1] + sum(cy[2:end] .* self.λpowers[:,i])
+    spots_ctrs = get_lasers_centers(cx, cy, self.poweredλs)
+    
+    # a matrix for each laser
+    list_spots = map(1:self.nλ) do i
+    
+        # spot centers
+        spot_ctr_x = compute_polynome(cx, self.poweredλs[:,i])
+        spot_ctr_y = compute_polynome(cy, self.poweredλs[:,i])
         
         # gaussian spot
         radiusmatrix = (xs .- spot_ctr_x).^2 .+ ((ys .- spot_ctr_y).^2)'
-        zygeachspot[:,:,i] = GaussianModel2.(radiusmatrix, fwhm[i])
+        GaussianModel2.(radiusmatrix, fwhm[i])
     end
-    eachspot = copy(zygeachspot)
     
     # amplitude of gaussian spots
     Zygote.@ignore begin
+        eachspot = cat(list_spots...; dims=3)
         spot_amps = updateAmplitude(self.nλ, eachspot, self.data, self.weights)
         any(isnan, spot_amps) && error("NaN amplitude: \"$spot_amps\"")
         self.last_amp .= spot_amps
     end
-    
-    sumspots = zeros(Float64, size(self.data))
-    for i in 1:self.nλ
-        sumspots += eachspot[:,:,i] .* self.last_amp[i]
-    end
-    
+
+    list_spots_amped = map(1:self.nλ) do i ; list_spots[i] .* self.last_amp[i] end
+
+    sumspots = reduce(.+, list_spots_amped)
+
     sum(self.weights .* (self.data .- sumspots).^2)
 end
+
+
+
