@@ -21,12 +21,14 @@ using Zygote,
       ProgressMeter,
       OptimPackNextGen
       
+include("utils.jl")
 include("DispModel.jl")
 include("ProfileModel.jl")
 include("LensletModel.jl")
 include("LikelihoodDisp.jl")
 include("LikelihoodProfile.jl")
 include("WaveLampLikelihood.jl")
+include("SpecPosLikelihood.jl")
 include("fit.jl")
 
 end

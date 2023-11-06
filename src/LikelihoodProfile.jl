@@ -28,7 +28,7 @@ function LikelihoodProfile(
     LikelihoodProfile{T,A,B}(pmodel, data, weight, λMap, bbox, amplitude)
 end
 
- function  (self::LikelihoodProfile)(C::Matrix{T})::T where (T<:AbstractFloat)
+ function (self::LikelihoodProfile)(C::Matrix{T})::T where (T<:AbstractFloat)
     cx = C[1,:]
     cλ = C[2,:]
     updateProfileModel(self.pmodel, cx, cλ)

@@ -81,19 +81,17 @@ function (self::WaveLampLikelihood)(
         
     (xs, ys) = axes(self.box)
     
-    spots_ctrs = get_lasers_centers(cx, cy, self.poweredλs)
-    
     # a matrix for each laser
-    list_spots = map(1:self.nλ) do i
-    
+    function build_matrix(i) # we avoid using "do" syntax for Zygote
         # spot centers
-        spot_ctr_x = compute_polynome(cx, self.poweredλs[:,i])
-        spot_ctr_y = compute_polynome(cy, self.poweredλs[:,i])
+        spot_ctr_x = compute_polynome_aux(cx, self.poweredλs[:,i])
+        spot_ctr_y = compute_polynome_aux(cy, self.poweredλs[:,i])
         
         # gaussian spot
         radiusmatrix = (xs .- spot_ctr_x).^2 .+ ((ys .- spot_ctr_y).^2)'
         GaussianModel2.(radiusmatrix, fwhm[i])
     end
+    list_spots = map(build_matrix, 1:self.nλ)
     
     # amplitude of gaussian spots
     Zygote.@ignore begin
@@ -103,7 +101,7 @@ function (self::WaveLampLikelihood)(
         self.last_amp .= spot_amps
     end
 
-    list_spots_amped = map(1:self.nλ) do i ; list_spots[i] .* self.last_amp[i] end
+    list_spots_amped = map(i -> list_spots[i] .* self.last_amp[i], 1:self.nλ)
 
     sumspots = reduce(.+, list_spots_amped)
 

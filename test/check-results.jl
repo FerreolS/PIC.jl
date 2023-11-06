@@ -19,7 +19,7 @@ function cmpt_clm(lenslettab)
     clm
 end
 
-function store_result(
+function store_output(
     filepath,
     (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, clm))
 
@@ -46,6 +46,54 @@ function store_result(
         dmodelcy[:,good] .= lens.dmodel.cy
         profilecx[:,good] .= lens.profile.cx
         profilecl[:,good] .= lens.profile.cλ
+    end
+
+    write(fitsfile, FitsHeader("HDUNAME" => "computedlensmap"), clm)
+    write(fitsfile, FitsHeader("EXTNAME" => "bboxs"), bboxs)
+    write(fitsfile,
+        FitsHeader("EXTNAME" => "dmodelcx", "ORDER" => dmodelorder, "L0" => dmodelλ0), dmodelcx)
+    write(fitsfile,
+        FitsHeader("EXTNAME" => "dmodelcy", "ORDER" => dmodelorder, "L0" => dmodelλ0), dmodelcy)
+    write(fitsfile,
+        FitsHeader("EXTNAME" => "profilecx", "ORDER" => profileorder, "L0" => profileλ0), profilecx)
+    write(fitsfile,
+        FitsHeader("EXTNAME" => "profilecl", "ORDER" => profileorder, "L0" => profileλ0), profilecl)
+    write(fitsfile, FitsHeader("EXTNAME" => "laserAmp"), laserAmplitude)
+    write(fitsfile, FitsHeader("EXTNAME" => "lampAmp"), lampAmplitude)
+    write(fitsfile, FitsHeader("EXTNAME" => "laserFWHM"), laserfwhm)
+    write(fitsfile, FitsHeader("EXTNAME" => "laserDist"), laserdist)
+    write(fitsfile, FitsHeader("EXTNAME" => "lambdaMap"), λMap)
+    close(fitsfile)
+end
+
+function store_output(
+    filepath,
+    (λ0, wavelamplkltab, profilemodeltab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, clm))
+
+    fitsfile = FitsFile(filepath, "w!")
+
+    nblenses = length(wavelamplkltab)
+
+    goods = findall(clm)
+
+    bboxs = fill(-1, 4, nblenses)
+    dmodelorder = wavelamplkltab[goods[1]].order
+    dmodelλ0    = λ0
+    profileorder = profilemodeltab[goods[1]].order
+    profileλ0    = profilemodeltab[goods[1]].λ0
+    dmodelcx = fill(NaN, dmodelorder + 1, nblenses)
+    dmodelcy = fill(NaN, dmodelorder + 1, nblenses)
+    profilecx = fill(NaN, profileorder + 1, nblenses)
+    profilecl = fill(NaN, profileorder + 1, nblenses)
+
+    for good in goods
+        wavelamplkl = wavelamplkltab[good]
+        profilemodel = profilemodeltab[good]
+        bboxs[:,good] .= [wavelamplkl.box...]
+        dmodelcx[:,good] .= wavelamplkl.last_cx
+        dmodelcy[:,good] .= wavelamplkl.last_cy
+        profilecx[:,good] .= profilemodel.cx
+        profilecl[:,good] .= profilemodel.cλ
     end
 
     write(fitsfile, FitsHeader("HDUNAME" => "computedlensmap"), clm)
@@ -284,34 +332,38 @@ function compare_results_approx(res_1, res_2)
     end
 end
 
-function get_result( (lenslettab, laserAmp, lampAmp, laserfwhm,laserdist, λMap, clm) )
+function get_result(
+    (λ0, wavelamplkltab, specposlkltab, laserAmp, lampAmp, laserfwhm,
+     laserdist, λMap, computedlensmap)
+)
 
-    goods = findall(clm)
+    goods = findall(computedlensmap)
     
-    nblenses = length(clm)
+    nblenses = length(computedlensmap)
     
     bboxs = fill(-1, 4, nblenses)
 
-    dmodelorder = lenslettab[goods[1]].dmodel.order
-    dmodelλ0    = lenslettab[goods[1]].dmodel.λ0
+    dmodelorder = wavelamplkltab[goods[1]].order
+    dmodelλ0    = λ0
     dmodelcx = fill(NaN, dmodelorder + 1, nblenses)
     dmodelcy = fill(NaN, dmodelorder + 1, nblenses)
 
-    profileorder = lenslettab[goods[1]].profile.order
-    profileλ0    = lenslettab[goods[1]].profile.λ0
+    profileorder = specposlkltab[goods[1]].pmodel.order
+    profileλ0    = specposlkltab[goods[1]].pmodel.λ0
     profilecx = fill(NaN, profileorder + 1, nblenses)
     profilecl = fill(NaN, profileorder + 1, nblenses)
 
     for good in goods
-        lens = lenslettab[good]
-        bboxs[:,good] .= [lens.bbox...]
-        dmodelcx[:,good] .= lens.dmodel.cx
-        dmodelcy[:,good] .= lens.dmodel.cy
-        profilecx[:,good] .= lens.profile.cx
-        profilecl[:,good] .= lens.profile.cλ
+        wavelamplkl = wavelamplkltab[good]
+        bboxs[:,good] .= [wavelamplkl.box...]
+        dmodelcx[:,good] .= wavelamplkl.last_cx
+        dmodelcy[:,good] .= wavelamplkl.last_cy
+        specposlkl = specposlkltab[good]
+        profilecx[:,good] .= specposlkl.pmodel.cx
+        profilecl[:,good] .= specposlkl.pmodel.cλ
     end
     
-    (; clm, bboxs,
+    (; computedlensmap, bboxs,
        dmodelorder, dmodelλ0, dmodelcx, dmodelcy,
        profileorder, profileλ0, profilecx, profilecl,
        laserAmp, lampAmp, laserfwhm,
