@@ -1,19 +1,12 @@
-struct WaveLampLikelihood{ Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float64} }
+struct WaveLampModel{ Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float64} }
     order ::Int
     nλ ::Int
     poweredλs ::Matrix{Float64}
     box ::BoundingBox{Int}
     data ::Md
     weights ::Mw
-
-    last_fwhm ::Vector{Float64}
-    last_cx   ::Vector{Float64}
-    last_cy   ::Vector{Float64}
-    last_amp  ::Vector{Float64}
     
-    function WaveLampLikelihood{Md,Mw}(
-        order, nλ, poweredλs, box, data, weights, last_fwhm, last_cx, last_cy, last_amp
-    ) where { Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float64} }
+    function WaveLampModel{Md,Mw}(order, nλ, poweredλs, box, data, weights) where {Md,Mw}
     
         nλ > order || throw(ArgumentError("`order` must be strictly less than `nλ`"))
         size(poweredλs) == (order, nλ) || throw(DimensionMismatch(
@@ -22,70 +15,31 @@ struct WaveLampLikelihood{ Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float
             "size of `box` must match the size of `data`"))
         size(data) == size(weights) || throw(DimensionMismatch(
             "size of `data` must match the size of `weights`"))
-        length(last_fwhm) == nλ || throw(DimensionMismatch(
-            "length of `last_fwhm` must be `nλ`"))
-        length(last_cx) == order + 1 || throw(DimensionMismatch(
-            "length of `last_cx` must be `order + 1`"))
-        length(last_cy) == order + 1 || throw(DimensionMismatch(
-            "length of `last_cy` must be `order + 1`"))
-        length(last_amp) == nλ || throw(DimensionMismatch(
-            "length of `last_amp` must be `nλ`"))
         
-        new{Md,Mw}(order, nλ, poweredλs, box, data, weights, last_fwhm, last_cx, last_cy, last_amp)
+        new{Md,Mw}(order, nλ, poweredλs, box, data, weights)
     end
 end
 
-function WaveLampLikelihood(
-    poweredλs ::Matrix{Float64}, box::BoundingBox{Int}, data::Md, weights::Mw
+function WaveLampModel(
+    order::Int, nλ::Int, poweredλs::Matrix{Float64}, box::BoundingBox{Int}, data::Md, weights::Mw
 ) where { Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float64} }
     
-    (order, nλ) = size(poweredλs)
-    last_fwhm = Vector{Float64}(undef, nλ)
-    last_cx   = Vector{Float64}(undef, order + 1)
-    last_cy   = Vector{Float64}(undef, order + 1)
-    last_amp  = Vector{Float64}(undef, nλ)
-    
-    WaveLampLikelihood{Md,Mw}(
-        order, nλ, poweredλs, box, data, weights, last_fwhm, last_cx, last_cy, last_amp)
+    WaveLampModel{Md,Mw}(order, nλ, poweredλs, box, data, weights)
 end
 
-function (self::WaveLampLikelihood)(V::Vector{Float64}) ::Float64
-    
-    startfwhm = 1
-    endfwhm   = self.nλ
-    startcx   = endfwhm + 1
-    endcx     = startcx + self.order
-    startcy   = endcx   + 1
-    endcy     = startcy + self.order
-    
-    fwhm = V[startfwhm : endfwhm]
-    cx   = V[startcx   : endcx]
-    cy   = V[startcy   : endcy]
-    
-    self(fwhm, cx, cy)
-end
-
-
-function (self::WaveLampLikelihood)(
+function (self::WaveLampModel)(
     fwhm::Vector{Float64}, cx::Vector{Float64}, cy::Vector{Float64}
-) ::Float64
-
-    Zygote.@ignore begin
-        self.last_fwhm .= fwhm
-        self.last_cx   .= cx
-        self.last_cy   .= cy
-        # we reset `last_amp`, because if the fit fails, we will be left with the
-        # `last_cx` from the current run but the `last_amp` from the previous run.
-        self.last_amp  .= NaN
-    end
+) ::Tuple{Matrix{Float64},Vector{Float64}}
         
     (xs, ys) = axes(self.box)
     
     # a matrix for each laser
     function build_matrix(i) # we avoid using "do" syntax for Zygote
         # spot centers
-        spot_ctr_x = compute_polynome_aux(cx, self.poweredλs[:,i])
-        spot_ctr_y = compute_polynome_aux(cy, self.poweredλs[:,i])
+        @show cx
+        @show self.poweredλs[:,i]
+        spot_ctr_x = #=1014.6521027190289 =#compute_polynome_aux(cx, self.poweredλs[:,i])
+        spot_ctr_y = #=1084.2108857705884 =#compute_polynome_aux(cy, self.poweredλs[:,i])
         
         # gaussian spot
         radiusmatrix = (xs .- spot_ctr_x).^2 .+ ((ys .- spot_ctr_y).^2)'
@@ -94,19 +48,91 @@ function (self::WaveLampLikelihood)(
     list_spots = map(build_matrix, 1:self.nλ)
     
     # amplitude of gaussian spots
+    spots_amps = fill(1e0, self.nλ)
     Zygote.@ignore begin
         eachspot = cat(list_spots...; dims=3)
-        spot_amps = updateAmplitude(self.nλ, eachspot, self.data, self.weights)
-        any(isnan, spot_amps) && error("NaN amplitude: \"$spot_amps\"")
-        self.last_amp .= spot_amps
+        spots_amps = updateAmplitude(self.nλ, eachspot, self.data, self.weights)
     end
 
-    list_spots_amped = map(i -> list_spots[i] .* self.last_amp[i], 1:self.nλ)
+    list_spots_amped =
+        if any(isnan, spots_amps)
+            @warn "NaN amplitude"
+            list_spots
+        else
+            map(i -> list_spots[i] .* spots_amps[i], 1:self.nλ)
+        end
 
-    sumspots = reduce(.+, list_spots_amped)
+    model = reduce(.+, list_spots_amped)
 
-    sum(self.weights .* (self.data .- sumspots).^2)
+    (model, spots_amps)
 end
 
+#function wll_input_encode(
+#    order::Int, nλ::Int, fwhm::Vector{Float64},
+#    cx0::Float64, restcx::Vector{Float64}, cy0::Float64, restcy::Vector{Float64}
+#) ::Matrix{Float64}
+#    
+#    M = fill(0e0, (nλ, 3))
+#    
+#    M[1:nλ, 1] .= fwhm
+#    
+#    M[1,         2]  = cx0
+#    M[2:order+1, 2] .= restcx
+#    
+#    M[1,         3]  = cy0
+#    M[2:order+1, 3] .= restcy
+#    
+#    @show M
+#    
+#    M
+#end
+#
+#function wll_input_decode(order::Int, nλ::Int, M::Matrix{Float64}) ::NTuple{3,Vector{Float64}}
+#
+#    fwhm = M[1:nλ, 1]
+#    cx   = M[1:order+1, 2]
+#    cy   = M[1:order+1, 3]
+#    
+#    (fwhm, cx, cy)
+#end
+
+function wll_input_encode(
+    fwhm::Vector{Float64},
+    cx0::Float64, restcx::Vector{Float64},
+    cy0::Float64, restcy::Vector{Float64}
+) ::Vector{Float64}
+    
+    [ fwhm; cx0; restcx; cy0; restcy ]
+end
+
+function wll_input_decode(order::Int, nλ::Int, V::Vector{Float64}) ::NTuple{3,Vector{Float64}}
+    
+    fwhm  = V[1:nλ]
+    
+    start = nλ + 1
+    cx    = V[start : start + order]
+    
+    start2 = start + order + 1
+    cy    = V[start2 : start2 + order]
+    
+    (fwhm, cx, cy)
+end
+
+function WaveLampLikelihood(self::WaveLampModel)(V::Vector{Float64}) ::Tuple{Float64,Vector{Float64}}
+    (fwhm, cx, cy) = wll_input_decode(self.model.order, self.nλ, V)
+    WaveLampLikelihood(self)(fwhm, cx, cy)
+end
+
+function WaveLampLikelihood(self::WaveLampModel)(
+    fwhm::Vector{Float64}, cx::Vector{Float64}, cy::Vector{Float64}
+) ::Tuple{Float64,Vector{Float64}}
+    
+    model = self(fwhm, cx, cy)
+
+    
+    cost = sum(self.weights .* (self.data .- model).^2)
+    
+    cost
+end
 
 

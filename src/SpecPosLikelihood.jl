@@ -33,10 +33,19 @@ function (self::SpecPosLikelihood)(C::Matrix{Float64})::Float64
     cx = C[1,:]
     cλ = C[2,:]
     updateProfileModel(self.pmodel, cx, cλ)
-    p = @. GaussianModel2(self.pmodel(self.λMap,($(axes(self.box,1)))))
+    p = GaussianModel2.(cp(self).(self.λMap, axes(self.box,1)))
     profile = p ./ sum(p,dims=1)
     amp = Zygote.@ignore  updateAmplitudeAndBackground(profile,self.data,self.weights)
     Zygote.@ignore self.last_amp .= amp[:]
     return (sum(abs2,@. self.weights * (self.data - amp[1] - $(reshape(amp[2:end],1,:)) * profile)))
 end
 
+function cp(self)
+    function (λ, a)
+        λpowers = ( (λ-self.pmodel.λ0) / self.pmodel.λ0 ).^(1:self.pmodel.order)
+        x = self.pmodel.cx[1] + sum(self.pmodel.cx[2:end] .* λpowers)
+        w = self.pmodel.cλ[1] + sum(self.pmodel.cλ[2:end] .* λpowers)
+        
+        return ((x - a)^2, w)
+    end
+end
