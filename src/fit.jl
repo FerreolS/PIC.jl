@@ -187,7 +187,7 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     λMap = Matrix{Float64}(undef, 2048, 2048)
     
     progress = Progress(numberoflenslet; showspeed=true)
-    #=Threads.@threads=# for i in findall(validlensmap)[1]#[1:100:end]
+    Threads.@threads for i in findall(validlensmap)[1:100:end]
 
         box = BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax,
                                  position[i,2]-dymin, position[i,2]+dymax)
@@ -195,31 +195,25 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
         box = round(Int, box, RoundNearestTiesUp);
 
         # Fit spectral law
-        
+        xinit = [ fwhminit..., position[i,1], cxinit..., position[i,2], cyinit... ]
         laserDataView   = view(laserdata,    box)
         laserWeightView = view(laserweights, box)
-                
-        wll = WaveLampLikelihood(order, nλ, poweredλs, box, laserDataView, laserWeightView)        
-        wavelamplkltab[i] = wll
         
-        fit_params = wll_input_encode(fwhminit, position[i,1], cxinit, position[i,2], cyinit)
+        wavelamplkltab[i] = WaveLampLikelihood(poweredλs, box, laserDataView, laserWeightView)
         
-        # !! do not give `p -> wavelamplkltab[i](p)` to vmlmb!, it makes Zygote fail !!
-        try vmlmb!(wll, fit_params
-                   ; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
-        catch e
-            @debug "Error on lenslet $i" exception=(e, catch_backtrace())
-            continue
-        end
-        error("good")
-        (fit_fwhm, fit_cx, fit_cy) = wll_input_decode(order, nλ, fit_params)
-        fit_amp = wavelamplkltab[i](fit_params)[2]
-        
-        laserAmplitude[:,i] .= fit_amp
-        laserfwhm[:,i] .= fit_fwhm
+        xopt =
+            try vmlmb(wavelamplkltab[i], xinit
+                      ; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
+            catch e
+                @debug "Error on lenslet $i" exception=(e, catch_backtrace())
+                continue
+            end
+        #FIXME: are we sure that the last run contains the best values ?
+        laserAmplitude[:,i] .= wavelamplkltab[i].last_amp
+        laserfwhm[:,i] .= wavelamplkltab[i].last_fwhm
         
         (lensletdist, lensletpixλ) = compute_distance_map(
-            box, wavelengthrange, λ0, fit_cx, fit_cy)
+            box, wavelengthrange, λ0, wavelamplkltab[i].last_cx, wavelamplkltab[i].last_cy)
             
         laserdist[box] .= lensletdist
         λMap[box] .= lensletpixλ
@@ -231,12 +225,12 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
 
         profilecoefs = zeros(Float64, 2, profileorder + 1)
         profilecoefs[2,:] .= [2.3, 2.5, 2.9] # maximum(fwhm)
-        profilecoefs[1,1] = fit_cx[1]
+        profilecoefs[1,1] = wavelamplkltab[i].last_cx[1]
 
-        pmodel = ProfileModel(λ0, profileorder, profilecoefs[1,:], profilecoefs[2,:])
+        @show pmodel = ProfileModel(λ0, profileorder, profilecoefs[1,:], profilecoefs[2,:])
         specposlkltab[i] = SpecPosLikelihood(pmodel,box, lampDataView, lampWeightView, lensletpixλ)
         try
-            vmlmb!(specposlkltab[i], profilecoefs
+            @show vmlmb(specposlkltab[i], profilecoefs
                   ; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
         catch e
             @debug "Error on lenslet  $i" exception=(e, catch_backtrace())

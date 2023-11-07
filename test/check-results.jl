@@ -68,7 +68,7 @@ end
 
 function store_output(
     filepath,
-    (λ0, wavelamplkltab, specposlkltab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, clm))
+    (λ0, wavelamplkltab, profilemodeltab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, clm))
 
     fitsfile = FitsFile(filepath, "w!")
 
@@ -79,8 +79,8 @@ function store_output(
     bboxs = fill(-1, 4, nblenses)
     dmodelorder = wavelamplkltab[goods[1]].order
     dmodelλ0    = λ0
-    profileorder = specposlkltab[goods[1]].pmodel.order
-    profileλ0    = specposlkltab[goods[1]].pmodel.λ0
+    profileorder = profilemodeltab[goods[1]].order
+    profileλ0    = profilemodeltab[goods[1]].λ0
     dmodelcx = fill(NaN, dmodelorder + 1, nblenses)
     dmodelcy = fill(NaN, dmodelorder + 1, nblenses)
     profilecx = fill(NaN, profileorder + 1, nblenses)
@@ -88,12 +88,12 @@ function store_output(
 
     for good in goods
         wavelamplkl = wavelamplkltab[good]
-        specposlkl = specposlkltab[good]
+        profilemodel = profilemodeltab[good]
         bboxs[:,good] .= [wavelamplkl.box...]
         dmodelcx[:,good] .= wavelamplkl.last_cx
         dmodelcy[:,good] .= wavelamplkl.last_cy
-        profilecx[:,good] .= specposlkl.pmodel.cx
-        profilecl[:,good] .= specposlkl.pmodel.cλ
+        profilecx[:,good] .= profilemodel.cx
+        profilecl[:,good] .= profilemodel.cλ
     end
 
     write(fitsfile, FitsHeader("HDUNAME" => "computedlensmap"), clm)
