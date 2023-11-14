@@ -68,8 +68,10 @@ end
 
 function store_output(
     filepath,
-    (λ0, wavelamplkltab, wavelamps_fits_cx, wavelamps_fits_cy, specposlkltab, laserAmplitude,
-     lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap))
+    (λ0,
+     wavelamplkltab, wavelamps_fits_cx, wavelamps_fits_cy,
+     specposlkltab, specpos_fits_cx, specpos_fits_cλ,
+     laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap))
 
     fitsfile = FitsFile(filepath, "w!")
 
@@ -80,8 +82,8 @@ function store_output(
     bboxs = fill(-1, 4, nblenses)
     dmodelorder = wavelamplkltab[goods[1]].order
     dmodelλ0    = λ0
-    profileorder = specposlkltab[goods[1]].pmodel.order
-    profileλ0    = specposlkltab[goods[1]].pmodel.λ0
+    profileorder = specposlkltab[goods[1]].order
+    profileλ0    = specposlkltab[goods[1]].λ0
     dmodelcx = fill(NaN, dmodelorder + 1, nblenses)
     dmodelcy = fill(NaN, dmodelorder + 1, nblenses)
     profilecx = fill(NaN, profileorder + 1, nblenses)
@@ -89,12 +91,11 @@ function store_output(
 
     for good in goods
         wavelamplkl = wavelamplkltab[good]
-        profilemodel = specposlkltab[good].pmodel
         bboxs[:,good] .= [wavelamplkl.box...]
         dmodelcx[:,good] .= wavelamps_fits_cx[:,good]
         dmodelcy[:,good] .= wavelamps_fits_cy[:,good]
-        profilecx[:,good] .= profilemodel.cx
-        profilecl[:,good] .= profilemodel.cλ
+        profilecx[:,good] .= specpos_fits_cx[:,good]
+        profilecl[:,good] .= specpos_fits_cλ[:,good]
     end
 
     write(fitsfile, FitsHeader("HDUNAME" => "computedlensmap"), computedlensmap)
@@ -188,11 +189,25 @@ function compare_results_strict(res_1, res_2)
     profileλ0_1 ≈ profileλ0_2 || @warn "different profileλ0: $profileλ0_1 != $profileλ0_2"
      
     if !equalOrNans(profilecx_1[:,clm], profilecx_2[:,clm])
-        @warn "different profilecx"
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(profilecx_1[:,i], profilecx_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn "different profilecx, example lens $bad: $(profilecx_1[:,bad]) != $(profilecx_2[:,bad])"
     end
      
     if !equalOrNans(profilecl_1[:,clm], profilecl_2[:,clm])
-        @warn "different profilecl"
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(profilecl_1[:,i], profilecl_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn "different profilecl, example lens $bad: $(profilecl_1[:,bad]) != $(profilecl_2[:,bad])"
     end
      
     if !equalOrNans(laserAmp_1[:,clm], laserAmp_2[:,clm])
@@ -215,7 +230,10 @@ function compare_results_strict(res_1, res_2)
                 break
             end
         end
-        @warn "different lampAmp, example lens $bad: $(lampAmp_1[:,bad]) != $(lampAmp_2[:,bad])"
+        @warn "different lampAmp, example lens $bad: "
+        show(stdout, MIME"text/plain"(), lampAmp_1[:,bad])
+        println("!=")
+        show(stdout, MIME"text/plain"(), lampAmp_2[:,bad])
     end
     
     if !equalOrNans(laserfwhm_1[:,clm], laserfwhm_2[:,clm])
@@ -341,8 +359,10 @@ function compare_results_approx(res_1, res_2)
 end
 
 function get_result(
-    (λ0, wavelamplkltab, wavelamps_fits_cx, wavelamps_fits_cy, specposlkltab, laserAmplitude,
-     lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
+    (λ0,
+     wavelamplkltab, wavelamps_fits_cx, wavelamps_fits_cy,
+     specposlkltab, specpos_fits_cx, specpos_fits_cλ,
+     laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
 )
 
     goods = findall(computedlensmap)
@@ -356,8 +376,8 @@ function get_result(
     dmodelcx = fill(NaN, dmodelorder + 1, nblenses)
     dmodelcy = fill(NaN, dmodelorder + 1, nblenses)
 
-    profileorder = specposlkltab[goods[1]].pmodel.order
-    profileλ0    = specposlkltab[goods[1]].pmodel.λ0
+    profileorder = specposlkltab[goods[1]].order
+    profileλ0    = specposlkltab[goods[1]].λ0
     profilecx = fill(NaN, profileorder + 1, nblenses)
     profilecl = fill(NaN, profileorder + 1, nblenses)
 
@@ -366,9 +386,8 @@ function get_result(
         bboxs[:,good] .= [wavelamplkl.box...]
         dmodelcx[:,good] .= wavelamps_fits_cx[:,good]
         dmodelcy[:,good] .= wavelamps_fits_cy[:,good]
-        specposlkl = specposlkltab[good]
-        profilecx[:,good] .= specposlkl.pmodel.cx
-        profilecl[:,good] .= specposlkl.pmodel.cλ
+        profilecx[:,good] .= specpos_fits_cx[:,good]
+        profilecl[:,good] .= specpos_fits_cλ[:,good]
     end
     
     (; computedlensmap, bboxs,

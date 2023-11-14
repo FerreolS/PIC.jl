@@ -1,14 +1,4 @@
-"""
-Compute the value at position sqrt(r) 1D centered Gaussian
-* `x`:  squared sampled position
-* `fwhm` : full-width at half maximum
-"""
-function GaussianModel2(x::T, fwhm::T) where {T<:Real}
-    local fwhm2sigma =T(1 / (2 * sqrt(2 * log( 2))))
-    return exp(-x / (2 * (fwhm * fwhm2sigma )^2));
-end
 
-GaussianModel2(tpl::Tuple{T,T}) where {T<:Real} = GaussianModel2(tpl[1], tpl[2])
 
 
 
@@ -52,6 +42,9 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     
     wavelamps_fits_cx = Matrix{Float64}(undef, order + 1, numberoflenslet)
     wavelamps_fits_cy = Matrix{Float64}(undef, order + 1, numberoflenslet)
+    
+    specpos_fits_cx = Matrix{Float64}(undef, profileorder + 1, numberoflenslet)
+    specpos_fits_cλ = Matrix{Float64}(undef, profileorder + 1, numberoflenslet)
     
     laserAmplitude = Matrix{Float64}(undef, nλ, numberoflenslet)
     lampAmplitude  = Matrix{Float64}(undef, 41, numberoflenslet)
@@ -107,25 +100,22 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
         profilecoefs[2,:] .= [2.3, 2.5, 2.9] # maximum(fwhm)
         profilecoefs[1,1] = fit_cx[1]
 
-        pmodel = ProfileModel(λ0, profileorder, profilecoefs[1,:], profilecoefs[2,:])
-        specposlkltab[i] = SpecPosLikelihood(pmodel,box, lampDataView, lampWeightView, lensletpixλ)
+        specposlkltab[i] = SpecPosLikelihood(λ0, profileorder, box, lampDataView, lampWeightView, lensletpixλ)
         try
-            vmlmb(specposlkltab[i], profilecoefs
+            vmlmb!(specposlkltab[i], profilecoefs
                   ; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
         catch e
-            @debug "Error on lenslet  $i" exception=(e, catch_backtrace())
+            @debug "Error on lenslet  $i" exception=(e,catch_backtrace())
             continue
         end
-        #FIXME: are we sure that the last run contains the best values ?
-
-        profile = @. GaussianModel2(specposlkltab[i].pmodel(lensletpixλ,($(axes(box,1)))))
-        profile = profile ./ sum(profile,dims=1)
-        try
-            lampAmplitude[:,i] .= updateAmplitudeAndBackground(profile,lampDataView,lampWeightView)
-        catch e
-            @debug "Error on lenslet  $i" exception=(e, catch_backtrace())
-            continue
-        end
+        # call one last time, to ensure that `last_amps` is updated from the final `profilecoefs`
+        specposlkltab[i](profilecoefs)
+        (fit_cx, fit_cλ) = decode_SpecPosLikelihood_input(profilecoefs)
+        fit_amps = specposlkltab[i].last_amps
+        
+        specpos_fits_cx[:,i] .= fit_cx
+        specpos_fits_cλ[:,i] .= fit_cλ
+        lampAmplitude[:,i]   .= fit_amps
         
         # if we are here the computation was complete
         computedlensmap[i] = true
@@ -134,8 +124,10 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     end
     finish!(progress)
    
-    (λ0, wavelamplkltab, wavelamps_fits_cx, wavelamps_fits_cy, specposlkltab, laserAmplitude,
-     lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
+    (λ0,
+     wavelamplkltab, wavelamps_fits_cx, wavelamps_fits_cy,
+     specposlkltab, specpos_fits_cx, specpos_fits_cλ,
+     laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
 end
 
 
@@ -168,49 +160,5 @@ function compute_distance_map(
         end
     end
     dist, pixλ
-end
-
-#function updateAmplitude(profile,data::Matrix{T},weight::Matrix{T}) where T<:AbstractFloat
-#    A = similar(data)
-#    b = similar(data)
-#
-#    @. b = profile * data * weight
-#    @. A = profile^2 * weight
-#    A = sum(A,dims=1)
-#    b = sum(b,dims=1)
-#    zA = (A .== T(0)).||(b.<=T(0))
-#    if any(zA)
-#        A[zA] .=1
-#        b[zA] .=0
-#    end
-#
-#    return b ./ A
-#end
-
-function updateAmplitudeAndBackground(profile,data::MA,weight::MB) where {T<:AbstractFloat,MA<:AbstractMatrix{T},MB<:AbstractMatrix{T}}
-
-    c = @. profile *  weight
-    b = @. profile * data * weight
-    a = @. profile^2 * weight
-    a = sum(a,dims=1)[:]
-    b = sum(b,dims=1)[:]
-    c = sum(c,dims=1)[:]
-    za = (a .== T(0)).||(b.<=T(0))
-    if any(za)
-        a[za] .=T(1)
-        b[za] .=T(0)
-        c[za] .=T(0)
-    end
-
-
-    N = length(a)
-    A = Matrix{T}(undef,N+1,N+1)
-    A[1,1] = sum(weight)
-    A[1,2:end] .= A[2:end,1] .= c[:]
-    A[2:end,2:end] .= diagm(a)
-
-    b =  vcat(sum(data .* weight),b[:])
-
-    return  inv(A)*b
 end
 
