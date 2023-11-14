@@ -1,3 +1,6 @@
+using Revise
+using PIC
+
 using EasyFITS, DelimitedFiles, StatsBase
 using Base: Fix1, Fix2
 

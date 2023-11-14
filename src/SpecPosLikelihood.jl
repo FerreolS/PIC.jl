@@ -6,18 +6,14 @@ struct SpecPosLikelihood{
     weights ::Mw
     λMap    ::Mm
     
-    last_amp ::Vector{Float64}
-    
-    function SpecPosLikelihood{Md,Mw,Mm}(pmodel, box, data, weights, λMap, last_amp) where {Md,Mw,Mm}
+    function SpecPosLikelihood{Md,Mw,Mm}(pmodel, box, data, weights, λMap) where {Md,Mw,Mm}
         size(data) == size(box) || throw(DimensionMismatch(
             "size of `data` incompatible with size of `box`"))
         size(data) == size(weights) || throw(DimensionMismatch(
             "size of `data` incompatible with size of `weights`"))
         size(data) == size(λMap) || throw(DimensionMismatch(
             "size of `data` incompatible with size of `λMap`"))
-        size(data,2) + 1 == length(last_amp) || throw(DimensionMismatch(
-            "size of `data` incompatible with size of `last_amp`"))
-        new{Md,Mw,Mm}(pmodel, box, data, weights, λMap, last_amp)
+        new{Md,Mw,Mm}(pmodel, box, data, weights, λMap)
     end
 end
 
@@ -25,8 +21,7 @@ function SpecPosLikelihood(
     pmodel::ProfileModel, box::BoundingBox{Int}, data::Md, weights::Mw, λMap::Mm
 ) where { Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float64}, Mm<:AbstractMatrix{Float64} }
 
-    last_amp = Vector{Float64}(undef, size(data,2) + 1)
-    SpecPosLikelihood{Md,Mw,Mm}(pmodel, box, data, weights, λMap, last_amp)
+    SpecPosLikelihood{Md,Mw,Mm}(pmodel, box, data, weights, λMap)
 end
 
 function (self::SpecPosLikelihood)(C::Matrix{Float64})::Float64
@@ -36,7 +31,6 @@ function (self::SpecPosLikelihood)(C::Matrix{Float64})::Float64
     p = @. GaussianModel2(self.pmodel(self.λMap,($(axes(self.box,1)))))
     profile = p ./ sum(p,dims=1)
     amp = Zygote.@ignore  updateAmplitudeAndBackground(profile,self.data,self.weights)
-    Zygote.@ignore self.last_amp .= amp[:]
     return (sum(abs2,@. self.weights * (self.data - amp[1] - $(reshape(amp[2:end],1,:)) * profile)))
 end
 
