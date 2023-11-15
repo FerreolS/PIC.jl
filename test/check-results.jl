@@ -4,498 +4,124 @@ using Test,
 using Base: Fix1, Fix2, splat
 using StatsBase: median, mad
 
-function cmpt_goods(lenslettab)
-    [ i for i in eachindex(lenslettab)
-        if isassigned(lenslettab, i) && all(!isnan, lenslettab[i].dmodel.cx)
-                                     && all(!isnan, lenslettab[i].dmodel.cy)
-                                     && [1, 0, 0] != lenslettab[i].profile.cx
-                                     && [1, 0, 0] != lenslettab[i].profile.cλ   ]
-end
-
-function cmpt_clm(lenslettab)
-    clm = falses(length(lenslettab))
-    goods = cmpt_goods(lenslettab)
-    clm[goods] .= true
-    clm
-end
-
-function store_output(
-    filepath,
-    (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, clm))
-
-    fitsfile = FitsFile(filepath, "w!")
-
-    nblenses = length(lenslettab)
-
-    goods = findall(clm)
-
-    bboxs = fill(-1, 4, nblenses)
-    dmodelorder = lenslettab[goods[1]].dmodel.order
-    dmodelλ0    = lenslettab[goods[1]].dmodel.λ0
-    profileorder = lenslettab[goods[1]].profile.order
-    profileλ0    = lenslettab[goods[1]].profile.λ0
-    dmodelcx = fill(NaN, dmodelorder + 1, nblenses)
-    dmodelcy = fill(NaN, dmodelorder + 1, nblenses)
-    profilecx = fill(NaN, profileorder + 1, nblenses)
-    profilecl = fill(NaN, profileorder + 1, nblenses)
-
-    for good in goods
-        lens = lenslettab[good]
-        bboxs[:,good] .= [lens.bbox...]
-        dmodelcx[:,good] .= lens.dmodel.cx
-        dmodelcy[:,good] .= lens.dmodel.cy
-        profilecx[:,good] .= lens.profile.cx
-        profilecl[:,good] .= lens.profile.cλ
-    end
-
-    write(fitsfile, FitsHeader("HDUNAME" => "computedlensmap"), clm)
-    write(fitsfile, FitsHeader("EXTNAME" => "bboxs"), bboxs)
-    write(fitsfile,
-        FitsHeader("EXTNAME" => "dmodelcx", "ORDER" => dmodelorder, "L0" => dmodelλ0), dmodelcx)
-    write(fitsfile,
-        FitsHeader("EXTNAME" => "dmodelcy", "ORDER" => dmodelorder, "L0" => dmodelλ0), dmodelcy)
-    write(fitsfile,
-        FitsHeader("EXTNAME" => "profilecx", "ORDER" => profileorder, "L0" => profileλ0), profilecx)
-    write(fitsfile,
-        FitsHeader("EXTNAME" => "profilecl", "ORDER" => profileorder, "L0" => profileλ0), profilecl)
-    write(fitsfile, FitsHeader("EXTNAME" => "laserAmp"), laserAmplitude)
-    write(fitsfile, FitsHeader("EXTNAME" => "lampAmp"), lampAmplitude)
-    write(fitsfile, FitsHeader("EXTNAME" => "laserFWHM"), laserfwhm)
-    write(fitsfile, FitsHeader("EXTNAME" => "laserDist"), laserdist)
-    write(fitsfile, FitsHeader("EXTNAME" => "lambdaMap"), λMap)
-    close(fitsfile)
-end
-
-function store_output(
-    filepath,
-    (λ0,
-     wavelamplkltab, wavelamps_fits_cx, wavelamps_fits_cy,
-     specposlkltab, specpos_fits_cx, specpos_fits_cλ,
-     laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap))
-
-    fitsfile = FitsFile(filepath, "w!")
-
-    nblenses = length(wavelamplkltab)
-
-    goods = findall(computedlensmap)
-
-    bboxs = fill(-1, 4, nblenses)
-    dmodelorder = wavelamplkltab[goods[1]].order
-    dmodelλ0    = λ0
-    profileorder = specposlkltab[goods[1]].order
-    profileλ0    = specposlkltab[goods[1]].λ0
-    dmodelcx = fill(NaN, dmodelorder + 1, nblenses)
-    dmodelcy = fill(NaN, dmodelorder + 1, nblenses)
-    profilecx = fill(NaN, profileorder + 1, nblenses)
-    profilecl = fill(NaN, profileorder + 1, nblenses)
-
-    for good in goods
-        wavelamplkl = wavelamplkltab[good]
-        bboxs[:,good] .= [wavelamplkl.box...]
-        dmodelcx[:,good] .= wavelamps_fits_cx[:,good]
-        dmodelcy[:,good] .= wavelamps_fits_cy[:,good]
-        profilecx[:,good] .= specpos_fits_cx[:,good]
-        profilecl[:,good] .= specpos_fits_cλ[:,good]
-    end
-
-    write(fitsfile, FitsHeader("HDUNAME" => "computedlensmap"), computedlensmap)
-    write(fitsfile, FitsHeader("EXTNAME" => "bboxs"), bboxs)
-    write(fitsfile,
-        FitsHeader("EXTNAME" => "dmodelcx", "ORDER" => dmodelorder, "L0" => dmodelλ0), dmodelcx)
-    write(fitsfile,
-        FitsHeader("EXTNAME" => "dmodelcy", "ORDER" => dmodelorder, "L0" => dmodelλ0), dmodelcy)
-    write(fitsfile,
-        FitsHeader("EXTNAME" => "profilecx", "ORDER" => profileorder, "L0" => profileλ0), profilecx)
-    write(fitsfile,
-        FitsHeader("EXTNAME" => "profilecl", "ORDER" => profileorder, "L0" => profileλ0), profilecl)
-    write(fitsfile, FitsHeader("EXTNAME" => "laserAmp"), laserAmplitude)
-    write(fitsfile, FitsHeader("EXTNAME" => "lampAmp"), lampAmplitude)
-    write(fitsfile, FitsHeader("EXTNAME" => "laserFWHM"), laserfwhm)
-    write(fitsfile, FitsHeader("EXTNAME" => "laserDist"), laserdist)
-    write(fitsfile, FitsHeader("EXTNAME" => "lambdaMap"), λMap)
-    close(fitsfile)
-end
-
-function equalOrNans(x, y)
-    size(x) == size(y) || return false
-    for i in eachindex(x)
-        x[i] == y[i] || (isnan(x[i]) && isnan(y[i])) || return false
-    end
-    true
-end
-
-function approxOrNans(x, y)
-    size(x) == size(y) || return false
-    for i in eachindex(x)
-        x[i] ≈ y[i] || (isnan(x[i]) && isnan(y[i])) || return false
-    end
-    true
-end
-
-function approxOrNans(x, y, atol)
-    size(x) == size(y) || return false
-    for i in eachindex(x)
-        isapprox(x[i], y[i]; atol) || (isnan(x[i]) && isnan(y[i])) || return false
-    end
-    true
-end
-
-function compare_results_strict(res_1, res_2)
-    
-    (clm_1, bboxs_1,
-     dmodelorder_1, dmodelλ0_1, dmodelcx_1, dmodelcy_1,
-     profileorder_1, profileλ0_1, profilecx_1, profilecl_1,
-     laserAmp_1, lampAmp_1, laserfwhm_1,
-     laserdist_1, λMap_1) = res_1
-     
-    (clm_2, bboxs_2,
-     dmodelorder_2, dmodelλ0_2, dmodelcx_2, dmodelcy_2,
-     profileorder_2, profileλ0_2, profilecx_2, profilecl_2,
-     laserAmp_2, lampAmp_2, laserfwhm_2,
-     laserdist_2, λMap_2) = res_2
-     
-    if clm_1 != clm_2
-        @warn "different computedlensmap"
-        @warn "next tests will only be on lenses computed by both sides"
-    end
-    
-    clm = (&).(clm_1, clm_2)
-     
-    if bboxs_1[:,clm] != bboxs_2[:,clm]
-        @warn "different bboxs"
-    end
-     
-    dmodelorder_1 != dmodelorder_2 &&
-        @warn "different dmodelorder: $dmodelorder_1 != $dmodelorder_2"
-    dmodelλ0_1 ≈ dmodelλ0_2 || @warn "different dmodelλ0: $dmodelλ0_1 != $dmodelλ0_2"
-     
-    if !equalOrNans(dmodelcx_1[:,clm], dmodelcx_2[:,clm])
-        bad = 0
-        for i in findall(clm)
-            if !equalOrNans(dmodelcx_1[:,i], dmodelcx_2[:,i])
-                bad = i
-                break
-            end
-        end
-        @warn "different dmodelcx, example lens $bad: $(dmodelcx_1[:,bad]) != $(dmodelcx_2[:,bad])"
-    end
-     
-    if !equalOrNans(dmodelcy_1[:,clm], dmodelcy_2[:,clm])
-        @warn "different dmodelcy"
-    end
-     
-    profileorder_1 != profileorder_2 &&
-        @warn "different profileorder: $profileorder_1 != $profileorder_2"
-    profileλ0_1 ≈ profileλ0_2 || @warn "different profileλ0: $profileλ0_1 != $profileλ0_2"
-     
-    if !equalOrNans(profilecx_1[:,clm], profilecx_2[:,clm])
-        bad = 0
-        for i in findall(clm)
-            if !equalOrNans(profilecx_1[:,i], profilecx_2[:,i])
-                bad = i
-                break
-            end
-        end
-        @warn "different profilecx, example lens $bad: $(profilecx_1[:,bad]) != $(profilecx_2[:,bad])"
-    end
-     
-    if !equalOrNans(profilecl_1[:,clm], profilecl_2[:,clm])
-        bad = 0
-        for i in findall(clm)
-            if !equalOrNans(profilecl_1[:,i], profilecl_2[:,i])
-                bad = i
-                break
-            end
-        end
-        @warn "different profilecl, example lens $bad: $(profilecl_1[:,bad]) != $(profilecl_2[:,bad])"
-    end
-     
-    if !equalOrNans(laserAmp_1[:,clm], laserAmp_2[:,clm])
-        bad = 0
-        for i in findall(clm)
-            if !equalOrNans(laserAmp_1[:,i], laserAmp_2[:,i])
-                bad = i
-                break
-            end
-        end
-        @warn "different laserAmp, example lens $bad: $(laserAmp_1[:,bad]) != $(laserAmp_2[:,bad])"
-
-    end
-    
-    if !equalOrNans(lampAmp_1[:,clm], lampAmp_2[:,clm])
-        bad = 0
-        for i in findall(clm)
-            if !equalOrNans(lampAmp_1[:,i], lampAmp_2[:,i])
-                bad = i
-                break
-            end
-        end
-        @warn "different lampAmp, example lens $bad: "
-        show(stdout, MIME"text/plain"(), lampAmp_1[:,bad])
-        println("!=")
-        show(stdout, MIME"text/plain"(), lampAmp_2[:,bad])
-    end
-    
-    if !equalOrNans(laserfwhm_1[:,clm], laserfwhm_2[:,clm])
-        @warn "different laserfwhm"
-    end
-    
-    if !equalOrNans(laserdist_1, laserdist_2)
-        bad = 0
-        for i in findall(clm)
-            if !equalOrNans(laserdist_1[:,i], laserdist_2[:,i])
-                bad = i
-                break
-            end
-        end
-        @warn string("different laserdist, example lens $bad: ",
-                     laserdist_1[:,bad], " != ",  laserdist_2[:,bad])
-    end
-    
-    if !equalOrNans(λMap_1, λMap_2)
-        @warn "different λMap"
-    end
-end
-
-function compare_results_approx(res_1, res_2)
-    
-    (clm_1, bboxs_1,
-     dmodelorder_1, dmodelλ0_1, dmodelcx_1, dmodelcy_1,
-     profileorder_1, profileλ0_1, profilecx_1, profilecl_1,
-     laserAmp_1, lampAmp_1, laserfwhm_1,
-     laserdist_1, λMap_1) = res_1
-     
-    (clm_2, bboxs_2,
-     dmodelorder_2, dmodelλ0_2, dmodelcx_2, dmodelcy_2,
-     profileorder_2, profileλ0_2, profilecx_2, profilecl_2,
-     laserAmp_2, lampAmp_2, laserfwhm_2,
-     laserdist_2, λMap_2) = res_2
-     
-    if clm_1 != clm_2
-        @warn "different computedlensmap"
-        @warn "next tests will only be on lenses computed by both sides"
-    end
-    
-    clm = (&).(clm_1, clm_2)
-     
-    if bboxs_1[:,clm] != bboxs_2[:,clm]
-        @warn "different bboxs"
-    end
-     
-    dmodelorder_1 != dmodelorder_2 &&
-        @warn "different dmodelorder: $dmodelorder_1 != $dmodelorder_2"
-    dmodelλ0_1 ≈ dmodelλ0_2 || @warn "different dmodelλ0: $dmodelλ0_1 != $dmodelλ0_2"
-     
-    if !approxOrNans(dmodelcx_1[:,clm], dmodelcx_2[:,clm])
-        @warn "different dmodelcx"
-    end
-     
-    if !approxOrNans(dmodelcy_1[:,clm], dmodelcy_2[:,clm])
-        @warn "different dmodelcy"
-    end
-     
-    profileorder_1 != profileorder_2 &&
-        @warn "different profileorder: $profileorder_1 != $profileorder_2"
-    profileλ0_1 ≈ profileλ0_2 || @warn "different profileλ0: $profileλ0_1 != $profileλ0_2"
-     
-    if !approxOrNans(profilecx_1[:,clm], profilecx_2[:,clm], 0.01)
-        bad = 0
-        for i in findall(clm)
-            if !approxOrNans(profilecx_1[:,i], profilecx_2[:,i], 0.1)
-                bad = i
-                break
-            end
-        end
-        @warn string("different profilecx, example lens $bad: ",
-                     profilecx_1[:,bad], " != ", profilecx_2[:,bad])
-    end
-     
-    if !approxOrNans(profilecl_1[:,clm], profilecl_2[:,clm])
-        @warn "different profilecl"
-    end
-     
-    if !approxOrNans(laserAmp_1[:,clm], laserAmp_2[:,clm])
-        bad = 0
-        for i in findall(clm)
-            if !approxOrNans(laserAmp_1[:,i], laserAmp_2[:,i])
-                bad = i
-                break
-            end
-        end
-        @warn "different laserAmp, example lens $bad: $(laserAmp_1[:,bad]) != $(laserAmp_2[:,bad])"
-
-    end
-    
-    if !approxOrNans(lampAmp_1[:,clm], lampAmp_2[:,clm])
-        bad = 0
-        for i in findall(clm)
-            if !approxOrNans(lampAmp_1[:,i], lampAmp_2[:,i])
-                bad = i
-                break
-            end
-        end
-        @warn "different lampAmp, example lens $bad: $(lampAmp_1[:,bad]) != $(lampAmp_2[:,bad])"
-    end
-    
-    if !approxOrNans(laserfwhm_1[:,clm], laserfwhm_2[:,clm])
-        @warn "different laserfwhm"
-    end
-    
-    if !approxOrNans(laserdist_1, laserdist_2)
-        bad = 0
-        for i in findall(clm)
-            if !approxOrNans(laserdist_1[:,i], laserdist_2[:,i])
-                bad = i
-                break
-            end
-        end
-        @warn string("different laserdist, example lens $bad: ",
-                     laserdist_1[:,bad], " != ",  laserdist_2[:,bad])
-    end
-    
-    if !approxOrNans(λMap_1, λMap_2)
-        @warn "different λMap"
-    end
-end
-
 function get_result(
-    (λ0,
-     wavelamplkltab, wavelamps_fits_cx, wavelamps_fits_cy,
-     specposlkltab, specpos_fits_cx, specpos_fits_cλ,
+    (lensboxs, λ0,
+     wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
+     specpos_order, specpos_fits_cx, specpos_fits_cλ,
      laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
 )
-
-    goods = findall(computedlensmap)
     
-    nblenses = length(computedlensmap)
+    lensboxs = reduce(hcat, map(b -> [b...], lensboxs))
     
-    bboxs = fill(-1, 4, nblenses)
-
-    dmodelorder = wavelamplkltab[goods[1]].order
-    dmodelλ0    = λ0
-    dmodelcx = fill(NaN, dmodelorder + 1, nblenses)
-    dmodelcy = fill(NaN, dmodelorder + 1, nblenses)
-
-    profileorder = specposlkltab[goods[1]].order
-    profileλ0    = specposlkltab[goods[1]].λ0
-    profilecx = fill(NaN, profileorder + 1, nblenses)
-    profilecl = fill(NaN, profileorder + 1, nblenses)
-
-    for good in goods
-        wavelamplkl = wavelamplkltab[good]
-        bboxs[:,good] .= [wavelamplkl.box...]
-        dmodelcx[:,good] .= wavelamps_fits_cx[:,good]
-        dmodelcy[:,good] .= wavelamps_fits_cy[:,good]
-        profilecx[:,good] .= specpos_fits_cx[:,good]
-        profilecl[:,good] .= specpos_fits_cλ[:,good]
-    end
-    
-    (; computedlensmap, bboxs,
-       dmodelorder, dmodelλ0, dmodelcx, dmodelcy,
-       profileorder, profileλ0, profilecx, profilecl,
-       laserAmplitude, lampAmplitude, laserfwhm,
-       laserdist, λMap)
+    (; lensboxs, λ0,
+       wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
+       specpos_order, specpos_fits_cx, specpos_fits_cλ,
+       laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
 end
 
 function get_result(filepath::String)
 
     FitsFile(filepath) do fitsfile
-
-        hduclm = fitsfile[1]
-        hdubboxs = fitsfile["bboxs"]
-        hdudmodelcx = fitsfile["dmodelcx"]
-        hdudmodelcy = fitsfile["dmodelcy"]
-        hduprofilecx = fitsfile["profilecx"]
-        hduprofilecl = fitsfile["profilecl"]
-        hdulaseramp = fitsfile["laserAmp"]
-        hdulampamp = fitsfile["lampAmp"]
-        hdulaserfwhm = fitsfile["laserfwhm"]
-        hdulaserdist = fitsfile["laserDist"]
-        hduλMap = fitsfile["lambdaMap"]
         
-        computedlensmap = read(Array{Bool}, hduclm)
-        bboxs = read(hdubboxs)
+        computedlensmap = read(Array{Bool}, fitsfile["computedlensmap"])        
+
+        lensboxs = read(fitsfile["lensboxs"])
         
-        dmodelorder = hdudmodelcx["ORDER"].integer
-        dmodelλ0 = hdudmodelcx["L0"].float
-        dmodelcx = read(hdudmodelcx)
-        dmodelcy = read(hdudmodelcy)
+        wavelamp_order = fitsfile["wavelamps_fits_cx"]["ORDER"].integer
+        λ0 = fitsfile["wavelamps_fits_cx"]["L0"].float
+        wavelamps_fits_cx = read(fitsfile["wavelamps_fits_cx"])
+        wavelamps_fits_cy = read(fitsfile["wavelamps_fits_cy"])
     
-        profileorder = hduprofilecx["ORDER"].integer
-        profileλ0 = hduprofilecx["L0"].float
-        profilecx = read(hduprofilecx)
-        profilecl = read(hduprofilecl)
+        specpos_order = fitsfile["specpos_fits_cx"]["ORDER"].integer
+        specpos_fits_cx = read(fitsfile["specpos_fits_cx"])
+        specpos_fits_cλ = read(fitsfile["specpos_fits_cl"])
     
-        laserAmplitude = read(hdulaseramp)
-        laserfwhm = read(hdulaserfwhm)
-        lampAmplitude = read(hdulampamp)
+        laserAmplitude = read(fitsfile["laserAmp"])
+        lampAmplitude = read(fitsfile["lampAmp"])
+        laserfwhm = read(fitsfile["laserfwhm"])
+        laserdist = read(fitsfile["laserDist"])
+        λMap = read(fitsfile["lambdaMap"])
 
-        laserdist = read(hdulaserdist)
-        λMap = read(hduλMap)
-
-        (; computedlensmap, bboxs,
-           dmodelorder, dmodelλ0, dmodelcx, dmodelcy,
-           profileorder, profileλ0, profilecx, profilecl,
-           laserAmplitude, lampAmplitude, laserfwhm,
-           laserdist, λMap)
+        (; lensboxs, λ0,
+           wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
+           specpos_order, specpos_fits_cx, specpos_fits_cλ,
+           laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
    end
 end
 
-#end
+function store_result(
+    filepath,
+    (; lensboxs, λ0,
+     wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
+     specpos_order, specpos_fits_cx, specpos_fits_cλ,
+     laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
+)
+
+    fitsfile = FitsFile(filepath, "w!")
+
+    write(fitsfile, FitsHeader("HDUNAME" => "computedlensmap"), computedlensmap)
+    
+    write(fitsfile, FitsHeader("EXTNAME" => "lensboxs"), lensboxs)
+    
+    write(fitsfile,
+        FitsHeader("EXTNAME" => "wavelamps_fits_cx", "ORDER" => wavelamp_order, "L0" => λ0),
+        wavelamps_fits_cx)
+    write(fitsfile,
+        FitsHeader("EXTNAME" => "wavelamps_fits_cy", "ORDER" => wavelamp_order, "L0" => λ0),
+        wavelamps_fits_cy)
+    
+    write(fitsfile,
+        FitsHeader("EXTNAME" => "specpos_fits_cx", "ORDER" => specpos_order, "L0" => λ0),
+        specpos_fits_cx)
+    write(fitsfile,
+        FitsHeader("EXTNAME" => "specpos_fits_cl", "ORDER" => specpos_order, "L0" => λ0),
+        specpos_fits_cλ)
+        
+    write(fitsfile, FitsHeader("EXTNAME" => "laserAmp"), laserAmplitude)
+    write(fitsfile, FitsHeader("EXTNAME" => "lampAmp"), lampAmplitude)
+    write(fitsfile, FitsHeader("EXTNAME" => "laserFWHM"), laserfwhm)
+    write(fitsfile, FitsHeader("EXTNAME" => "laserDist"), laserdist)
+    write(fitsfile, FitsHeader("EXTNAME" => "lambdaMap"), λMap)
+    close(fitsfile)
+end
 
 function keep_numbers(data)
     data |> Fix1(filter, !isnan) |> Fix1(filter, !isinf)
 end
 
-function keep_90pc(data)
-    (lower, upper) = quantile(data, [0.05, 0.95])
-    clamp.(data, lower, upper)
-end
-
-function get_mean_std(data)
-    data = keep_numbers(data)
-    data = keep_90pc(data)
-    return mean(data), std(data)
-end
-
 function get_result_summary(
-    (; computedlensmap, bboxs,
-       dmodelorder, dmodelλ0, dmodelcx, dmodelcy,
-       profileorder, profileλ0, profilecx, profilecl,
-       laserAmplitude, lampAmplitude, laserfwhm,
-       laserdist, λMap)
+    (; lensboxs, λ0,
+       wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
+       specpos_order, specpos_fits_cx, specpos_fits_cλ,
+       laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
 )
 
     goods = findall(computedlensmap)
     
-    ratiogoods = length(goods) / length(computedlensmap)
+    nbgoods = length(goods)
     
-    # disp model
-    
-    quantilesDmodelcx = fill(NaN, (21, dmodelorder + 1))
-    for a in 1:dmodelorder+1
-        data = dmodelcx[a,goods]
-        quantilesDmodelcx[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
+    quantiles_wavelamps_fits_cx = fill(NaN, (21, wavelamp_order + 1))
+    for a in 1:wavelamp_order+1
+        data = wavelamps_fits_cx[a,goods]
+        quantiles_wavelamps_fits_cx[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
     
-    quantilesDmodelcy = fill(NaN, (21, dmodelorder+1))
-    for a in 1:dmodelorder+1
-        data = dmodelcy[a,goods]
-        quantilesDmodelcy[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
+    quantiles_wavelamps_fits_cy = fill(NaN, (21, wavelamp_order + 1))
+    for a in 1:wavelamp_order+1
+        data = wavelamps_fits_cy[a,goods]
+        quantiles_wavelamps_fits_cy[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
     
-    # profile model
-    
-    quantilesProfilecx = fill(NaN, (21, profileorder+1))
-    for a in 1:profileorder+1
-        data = profilecx[a,goods]
-        quantilesProfilecx[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
+    quantiles_specpos_fits_cx = fill(NaN, (21, specpos_order + 1))
+    for a in 1:specpos_order+1
+        data = specpos_fits_cx[a,goods]
+        quantiles_specpos_fits_cx[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
     
-    quantilesProfilecl = fill(NaN, (21, profileorder+1))
-    for a in 1:profileorder+1
-        data = profilecl[a,goods]
-        quantilesProfilecl[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
+    quantiles_specpos_fits_cλ = fill(NaN, (21, specpos_order + 1))
+    for a in 1:specpos_order+1
+        data = specpos_fits_cλ[a,goods]
+        quantiles_specpos_fits_cλ[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
     
     # laser amp
@@ -526,7 +152,7 @@ function get_result_summary(
     # laser dist
     medianMadDistColumn = fill(NaN, 5, 2)
     for c in 1:5
-        cs = [ laserdist[BoundingBox(bboxs[:,i]...)][c,:] for i in goods ]
+        cs = [ laserdist[BoundingBox(lensboxs[:,i]...)][c,:] for i in goods ]
         m, s = keep_numbers(reduce(vcat, cs)) |> x -> (median(x), mad(x))
         medianMadDistColumn[c,1] = m
         medianMadDistColumn[c,2] = s
@@ -535,15 +161,15 @@ function get_result_summary(
     # laser dist
     medianMadλMapLine = fill(NaN, 40, 2)
     for l in 1:40
-        ls = [ λMap[BoundingBox(bboxs[:,i]...)][:,l] for i in goods ]
+        ls = [ λMap[BoundingBox(lensboxs[:,i]...)][:,l] for i in goods ]
         m, s = keep_numbers(reduce(vcat, ls)) |> x -> (median(x), mad(x))
         medianMadλMapLine[l,1] = m
         medianMadλMapLine[l,2] = s
     end
 
-    (; ratiogoods,
-       dmodelorder, dmodelλ0, quantilesDmodelcx, quantilesDmodelcy,
-       profileorder, profileλ0, quantilesProfilecx, quantilesProfilecl,
+    (; nbgoods, λ0,
+       wavelamp_order, quantiles_wavelamps_fits_cx, quantiles_wavelamps_fits_cy,
+       specpos_order, quantiles_specpos_fits_cx, quantiles_specpos_fits_cλ,
        medianMadLasersAmps,
        medianMadLasersFWHMs,
        medianMadLampAmp,
@@ -558,4 +184,133 @@ function display_summary(summary, io=stdout)
         println(io)
     end
 end
+
+
+function equalOrNans(x, y)
+    size(x) == size(y) || return false
+    for i in eachindex(x)
+        x[i] == y[i] || (isnan(x[i]) && isnan(y[i])) || return false
+    end
+    true
+end
+
+function compare_results(res_1, res_2)
+    
+    (lensboxs_1, λ0_1,
+     wavelamp_order_1, wavelamps_fits_cx_1, wavelamps_fits_cy_1,
+     specpos_order_1, specpos_fits_cx_1, specpos_fits_cλ_1,
+     laserAmplitude_1, lampAmplitude_1, laserfwhm_1, laserdist_1, λMap_1,
+     computedlensmap_1) = res_1
+
+    (lensboxs_2, λ0_2,
+     wavelamp_order_2, wavelamps_fits_cx_2, wavelamps_fits_cy_2,
+     specpos_order_2, specpos_fits_cx_2, specpos_fits_cλ_2,
+     laserAmplitude_2, lampAmplitude_2, laserfwhm_2, laserdist_2, λMap_2,
+     computedlensmap_2) = res_2
+     
+    if computedlensmap_1 != computedlensmap_2
+        @warn "different computedlensmap"
+        @warn "next tests will only be on lenses computed by both sides"
+    end
+    
+    clm = (&).(computedlensmap_1, computedlensmap_2)
+     
+    if lensboxs_1[:,clm] != lensboxs_2[:,clm]
+        @warn "different lensbox"
+    end
+     
+    wavelamp_order_1 != wavelamp_order_2 &&
+        @warn "different wavelamp_order: $wavelamp_order_1 != $wavelamp_order_2"
+    λ0_1 ≈ λ0_2 || @warn "different λ0: $λ0_1 != $λ0_2"
+     
+    if !equalOrNans(wavelamps_fits_cx_1[:,clm], wavelamps_fits_cx_2[:,clm])
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(wavelamps_fits_cx_1[:,i], wavelamps_fits_cx_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn "different wavelamps_fits_cx, example lens $bad: $(wavelamps_fits_cx_1[:,bad]) != $(wavelamps_fits_cx_2[:,bad])"
+    end
+     
+    if !equalOrNans(wavelamps_fits_cy_1[:,clm], wavelamps_fits_cy_2[:,clm])
+        @warn "different wavelamps_fits_cy"
+    end
+     
+    specpos_order_1 != specpos_order_2 &&
+        @warn "different specpos_order: $specpos_order_1 != $specpos_order_2"
+     
+    if !equalOrNans(specpos_fits_cx_1[:,clm], specpos_fits_cx_2[:,clm])
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(specpos_fits_cx_1[:,i], specpos_fits_cx_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn "different specpos_fits_cx, example lens $bad: $(specpos_fits_cx_1[:,bad]) != $(specpos_fits_cx_2[:,bad])"
+    end
+     
+    if !equalOrNans(specpos_fits_cλ_1[:,clm], specpos_fits_cλ_2[:,clm])
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(specpos_fits_cλ_1[:,i], specpos_fits_cλ_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn "different specpos_fits_cλ, example lens $bad: $(specpos_fits_cλ_1[:,bad]) != $(specpos_fits_cλ_2[:,bad])"
+    end
+     
+    if !equalOrNans(laserAmplitude_1[:,clm], laserAmplitude_2[:,clm])
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(laserAmplitude_1[:,i], laserAmplitude_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn "different laserAmplitude, example lens $bad: $(laserAmplitude_1[:,bad]) != $(laserAmplitude_2[:,bad])"
+
+    end
+    
+    if !equalOrNans(lampAmplitude_1[:,clm], lampAmplitude_2[:,clm])
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(lampAmplitude_1[:,i], lampAmplitude_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn "different lampAmplitude, example lens $bad: "
+        show(stdout, MIME"text/plain"(), lampAmplitude_1[:,bad])
+        println("!=")
+        show(stdout, MIME"text/plain"(), lampAmplitude_2[:,bad])
+    end
+    
+    if !equalOrNans(laserfwhm_1[:,clm], laserfwhm_2[:,clm])
+        @warn "different laserfwhm"
+    end
+    
+    if !equalOrNans(laserdist_1, laserdist_2)
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(laserdist_1[:,i], laserdist_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn string("different laserdist, example lens $bad: ",
+                     laserdist_1[:,bad], " != ",  laserdist_2[:,bad])
+    end
+    
+    if !equalOrNans(λMap_1, λMap_2)
+        @warn "different λMap"
+    end
+end
+
+
+#end
+
 

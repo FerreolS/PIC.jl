@@ -31,8 +31,8 @@ function SpecPosLikelihood(
 end
 
 function decode_SpecPosLikelihood_input(M::Matrix{Float64}) ::NTuple{2,Vector{Float64}}
-    cx = M[1,:]
-    cλ = M[2,:]
+    cx = M[:,1]
+    cλ = M[:,2]
     (cx, cλ)
 end
 
@@ -52,7 +52,9 @@ function (self::SpecPosLikelihood)(M::Matrix{Float64})::Float64
         self.last_amps .= updateAmplitudeAndBackground(model, self.data, self.weights)
     end
     
-    return (sum(abs2,@. self.weights * (self.data - self.last_amps[1] - $(reshape(self.last_amps[2:end],1,:)) * model)))
+    resids = self.weights .* (self.data .- self.last_amps[1] .- (model .* self.last_amps[2:end]'))
+    
+    return sum(abs2, resids)
 end
 
 function updateAmplitudeAndBackground(profile,data::MA,weight::MB) where {T<:AbstractFloat,MA<:AbstractMatrix{T},MB<:AbstractMatrix{T}}

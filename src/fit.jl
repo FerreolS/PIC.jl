@@ -15,7 +15,7 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     fwhminit ::Vector{Float64},
     wavelengthrange ::AbstractVector{Float64}
     ; validlensmap  ::AbstractVector{Bool} = trues(size(position, 1)),
-      profileorder  ::Int = 2
+      specpos_order  ::Int = 2
     ) where T<:Real
 
     numberoflenslet = size(position,1)
@@ -30,21 +30,28 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     computedlensmap ::Vector{Bool} = falses(numberoflenslet)
     
     nλ = length(λlaser)
-    order = nλ - 1
+    wavelamp_order = nλ - 1
     λ0 = mean(λlaser) # reference
     refed_λs ::Vector{Float64}  = map(Base.Fix1(apply_reference, λ0), λlaser)
-    poweredλs ::Matrix{Float64} = [ λ^o for o in 1:order, λ in refed_λs ]
+    poweredλs ::Matrix{Float64} = [ λ^o for o in 1:wavelamp_order, λ in refed_λs ]
 
     (dxmin, dxmax,dymin,dymax) = lensletsize
+    
+    lensboxs = Vector{BoundingBox{Int}}(undef, numberoflenslet)
+    for (i, (x,y)) in enumerate(eachrow(position))
+        box = BoundingBox(x - dxmin, x + dxmax, y - dymin, y + dymax)
+        # RoundNearestTiesUp to enforce box size (special case of `.5` floats)
+        lensboxs[i] = round(Int, box, RoundNearestTiesUp)
+    end
     
     wavelamplkltab = Vector{WaveLampLikelihood}(undef, numberoflenslet)
     specposlkltab  = Vector{SpecPosLikelihood}( undef, numberoflenslet)
     
-    wavelamps_fits_cx = Matrix{Float64}(undef, order + 1, numberoflenslet)
-    wavelamps_fits_cy = Matrix{Float64}(undef, order + 1, numberoflenslet)
+    wavelamps_fits_cx = fill(NaN64, wavelamp_order + 1, numberoflenslet)
+    wavelamps_fits_cy = fill(NaN64, wavelamp_order + 1, numberoflenslet)
     
-    specpos_fits_cx = Matrix{Float64}(undef, profileorder + 1, numberoflenslet)
-    specpos_fits_cλ = Matrix{Float64}(undef, profileorder + 1, numberoflenslet)
+    specpos_fits_cx = fill(NaN64, specpos_order + 1, numberoflenslet)
+    specpos_fits_cλ = fill(NaN64, specpos_order + 1, numberoflenslet)
     
     laserAmplitude = Matrix{Float64}(undef, nλ, numberoflenslet)
     lampAmplitude  = Matrix{Float64}(undef, 41, numberoflenslet)
@@ -55,30 +62,27 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     progress = Progress(numberoflenslet; showspeed=true)
     Threads.@threads for i in findall(validlensmap)[1:100:end]
 
-        box = BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax,
-                                 position[i,2]-dymin, position[i,2]+dymax)
-        # we use RoundNearestTiesUp to enforce box size (special case of `.5` floats)
-        box = round(Int, box, RoundNearestTiesUp);
+        box = lensboxs[i]
 
         # Fit spectral law
         
         laserDataView   = view(laserdata,    box)
         laserWeightView = view(laserweights, box)
         wavelamplkltab[i] = WaveLampLikelihood(
-            order, nλ, poweredλs, box, laserDataView, laserWeightView)
+            wavelamp_order, nλ, poweredλs, box, laserDataView, laserWeightView)
         
         fit_params = [ fwhminit..., position[i,1], cxinit..., position[i,2], cyinit... ]
         
         try vmlmb!(wavelamplkltab[i], fit_params
                   ; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
         catch e
-            @debug "Error on lenslet $i" exception=(e, catch_backtrace())
+            @debug "Error on lenslet $i" exception=(e,catch_backtrace())
             continue
         end
         # call one last time, to ensure that `last_amp` is produced from the final `fit_params`
         wavelamplkltab[i](fit_params)
         fit_amp = wavelamplkltab[i].last_amp
-        (fit_fwhm, fit_cx, fit_cy) = decode_WaveLampLikelihood_input(nλ, order, fit_params)
+        (fit_fwhm, fit_cx, fit_cy) = decode_WaveLampLikelihood_input(nλ,wavelamp_order, fit_params)
         
         wavelamps_fits_cx[:,i] .= fit_cx
         wavelamps_fits_cy[:,i] .= fit_cy
@@ -96,11 +100,11 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
         lampDataView = view(lampdata, box);
         lampWeightView = view(lampweights, box);
 
-        profilecoefs = zeros(Float64, 2, profileorder + 1)
-        profilecoefs[2,:] .= [2.3, 2.5, 2.9] # maximum(fwhm)
+        profilecoefs = zeros(Float64, specpos_order + 1, 2)
         profilecoefs[1,1] = fit_cx[1]
+        profilecoefs[1,2] = mean(fit_fwhm)
 
-        specposlkltab[i] = SpecPosLikelihood(λ0, profileorder, box, lampDataView, lampWeightView, lensletpixλ)
+        specposlkltab[i] = SpecPosLikelihood(λ0, specpos_order, box, lampDataView, lampWeightView, lensletpixλ)
         try
             vmlmb!(specposlkltab[i], profilecoefs
                   ; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
@@ -124,9 +128,9 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     end
     finish!(progress)
    
-    (λ0,
-     wavelamplkltab, wavelamps_fits_cx, wavelamps_fits_cy,
-     specposlkltab, specpos_fits_cx, specpos_fits_cλ,
+    (lensboxs, λ0,
+     wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
+     specpos_order, specpos_fits_cx, specpos_fits_cλ,
      laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
 end
 
