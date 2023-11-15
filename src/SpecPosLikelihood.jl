@@ -7,10 +7,11 @@ struct SpecPosLikelihood{
     weights ::Mw
     λMap    ::Mm
     
+    last_background ::Ref{Float64}
     last_amps ::Vector{Float64}
-    
+
     function SpecPosLikelihood{Md,Mw,Mm}(
-            λ0, order, box, data, weights, λMap, last_amps) where {Md,Mw,Mm}
+            λ0, order, box, data, weights, λMap, last_background, last_amps) where {Md,Mw,Mm}
             
         size(data) == size(box) || throw(DimensionMismatch(
             "size of `data` incompatible with size of `box`"))
@@ -18,7 +19,9 @@ struct SpecPosLikelihood{
             "size of `data` incompatible with size of `weights`"))
         size(data) == size(λMap) || throw(DimensionMismatch(
             "size of `data` incompatible with size of `λMap`"))
-        new{Md,Mw,Mm}(λ0, order, box, data, weights, λMap, last_amps)
+        size(data,2) == length(last_amps) || throw(DimensionMismatch(
+            "size of `data` incompatible with size of `last_amps`"))
+        new{Md,Mw,Mm}(λ0, order, box, data, weights, λMap, last_background, last_amps)
     end
 end
 
@@ -26,8 +29,9 @@ function SpecPosLikelihood(
     λ0::Float64, order::Int, box::BoundingBox{Int}, data::Md, weights::Mw, λMap::Mm
 ) where { Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float64}, Mm<:AbstractMatrix{Float64} }
 
-    last_amps = Vector{Float64}(undef, size(box,2) + 1)
-    SpecPosLikelihood{Md,Mw,Mm}(λ0, order, box, data, weights, λMap, last_amps)
+    last_background = Ref(NaN64)
+    last_amps = Vector{Float64}(undef, size(box,2))
+    SpecPosLikelihood{Md,Mw,Mm}(λ0, order, box, data, weights, λMap, last_background, last_amps)
 end
 
 function decode_SpecPosLikelihood_input(M::Matrix{Float64}) ::NTuple{2,Vector{Float64}}
@@ -39,22 +43,30 @@ end
 function (self::SpecPosLikelihood)(M::Matrix{Float64})::Float64
     (cx, cλ) = decode_SpecPosLikelihood_input(M)
     
-    xs = polynome_with_reference(self.λ0, cx).(self.λMap)
-    fwhms = polynome_with_reference(self.λ0, cλ).(self.λMap)
-    
-    relative_xs = (xs .- axes(self.box,1)) .^ 2
-    
-    model = GaussianModel2.(relative_xs, fwhms)
-    
-    model = model ./ sum(model; dims=1)  # normalize at 1 along x axis
-    
-    Zygote.@ignore begin
-        self.last_amps .= updateAmplitudeAndBackground(model, self.data, self.weights)
+    @inbounds begin
+        xs = polynome_with_reference(self.λ0, cx).(self.λMap)
+        fwhms = polynome_with_reference(self.λ0, cλ).(self.λMap)
+            
+        relative_xs = (xs .- axes(self.box,1)) .^ 2
+        
+        model = GaussianModel2.(relative_xs, fwhms)
+        
+        model = model ./ sum(model; dims=1)  # normalize at 1 along x axis
     end
     
-    resids = self.weights .* (self.data .- self.last_amps[1] .- (model .* self.last_amps[2:end]'))
+    Zygote.@ignore begin
+        (background, amps) = updateAmplitudeAndBackground(model, self.data, self.weights)
+        self.last_background.x = background
+        self.last_amps .= amps
+    end
     
-    return sum(abs2, resids)
+    @inbounds begin
+        model_amped = (model .* self.last_amps') .+ self.last_background.x
+        residuals   = (self.data .- model_amped) .* self.weights
+        cost        = sum(abs2, residuals)
+    end
+    
+    cost
 end
 
 function updateAmplitudeAndBackground(profile,data::MA,weight::MB) where {T<:AbstractFloat,MA<:AbstractMatrix{T},MB<:AbstractMatrix{T}}
@@ -81,6 +93,10 @@ function updateAmplitudeAndBackground(profile,data::MA,weight::MB) where {T<:Abs
 
     b =  vcat(sum(data .* weight),b[:])
 
-    return  inv(A)*b
+    v =  inv(A)*b
+    background = v[1]
+    amps       = v[2:end]
+    
+    (background, amps)
 end
 

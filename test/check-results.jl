@@ -8,7 +8,7 @@ function get_result(
     (lensboxs, λ0,
      wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
      specpos_order, specpos_fits_cx, specpos_fits_cλ,
-     laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
+     laserAmplitude, lampBackground, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
 )
     
     lensboxs = reduce(hcat, map(b -> [b...], lensboxs))
@@ -16,7 +16,7 @@ function get_result(
     (; lensboxs, λ0,
        wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
        specpos_order, specpos_fits_cx, specpos_fits_cλ,
-       laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
+       laserAmplitude, lampBackground, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
 end
 
 function get_result(filepath::String)
@@ -37,6 +37,7 @@ function get_result(filepath::String)
         specpos_fits_cλ = read(fitsfile["specpos_fits_cl"])
     
         laserAmplitude = read(fitsfile["laserAmp"])
+        lampBackground = read(fitsfile["lampBackground"])
         lampAmplitude = read(fitsfile["lampAmp"])
         laserfwhm = read(fitsfile["laserfwhm"])
         laserdist = read(fitsfile["laserDist"])
@@ -45,7 +46,8 @@ function get_result(filepath::String)
         (; lensboxs, λ0,
            wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
            specpos_order, specpos_fits_cx, specpos_fits_cλ,
-           laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
+           laserAmplitude, lampBackground, lampAmplitude, laserfwhm,
+           laserdist, λMap, computedlensmap)
    end
 end
 
@@ -54,7 +56,7 @@ function store_result(
     (; lensboxs, λ0,
      wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
      specpos_order, specpos_fits_cx, specpos_fits_cλ,
-     laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
+     laserAmplitude, lampBackground, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
 )
 
     fitsfile = FitsFile(filepath, "w!")
@@ -78,6 +80,7 @@ function store_result(
         specpos_fits_cλ)
         
     write(fitsfile, FitsHeader("EXTNAME" => "laserAmp"), laserAmplitude)
+    write(fitsfile, FitsHeader("EXTNAME" => "lampBackground"), lampBackground)
     write(fitsfile, FitsHeader("EXTNAME" => "lampAmp"), lampAmplitude)
     write(fitsfile, FitsHeader("EXTNAME" => "laserFWHM"), laserfwhm)
     write(fitsfile, FitsHeader("EXTNAME" => "laserDist"), laserdist)
@@ -93,7 +96,7 @@ function get_result_summary(
     (; lensboxs, λ0,
        wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
        specpos_order, specpos_fits_cx, specpos_fits_cλ,
-       laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
+       laserAmplitude, lampBackground, lampAmplitude, laserfwhm,laserdist, λMap, computedlensmap)
 )
 
     goods = findall(computedlensmap)
@@ -141,13 +144,18 @@ function get_result_summary(
                              medianLaserFWHM3 madLaserFWHM3 ]
 
     # lamp Amp
-    
     medianMadLampAmp = fill(NaN, 40, 2)
     for i in 1:40
-        m, s = keep_numbers(lampAmplitude[1+i, goods]) |> x -> (median(x), mad(x))
+        m, s = keep_numbers(lampAmplitude[i, goods]) |> x -> (median(x), mad(x))
         medianMadLampAmp[i,1] = m
         medianMadLampAmp[i,2] = s
     end
+
+    # lamp Background
+    medianMadLampBackground = fill(NaN, 1, 2)
+    m, s = keep_numbers(lampBackground[goods]) |> x -> (median(x), mad(x))
+    medianMadLampBackground[1,1] = m
+    medianMadLampBackground[1,2] = s
 
     # laser dist
     medianMadDistColumn = fill(NaN, 5, 2)
@@ -172,7 +180,7 @@ function get_result_summary(
        specpos_order, quantiles_specpos_fits_cx, quantiles_specpos_fits_cλ,
        medianMadLasersAmps,
        medianMadLasersFWHMs,
-       medianMadLampAmp,
+       medianMadLampBackground, medianMadLampAmp,
        medianMadDistColumn, medianMadλMapLine)
 end
 
@@ -199,13 +207,13 @@ function compare_results(res_1, res_2)
     (lensboxs_1, λ0_1,
      wavelamp_order_1, wavelamps_fits_cx_1, wavelamps_fits_cy_1,
      specpos_order_1, specpos_fits_cx_1, specpos_fits_cλ_1,
-     laserAmplitude_1, lampAmplitude_1, laserfwhm_1, laserdist_1, λMap_1,
+     laserAmplitude_1, lampBackground_1, lampAmplitude_1, laserfwhm_1, laserdist_1, λMap_1,
      computedlensmap_1) = res_1
 
     (lensboxs_2, λ0_2,
      wavelamp_order_2, wavelamps_fits_cx_2, wavelamps_fits_cy_2,
      specpos_order_2, specpos_fits_cx_2, specpos_fits_cλ_2,
-     laserAmplitude_2, lampAmplitude_2, laserfwhm_2, laserdist_2, λMap_2,
+     laserAmplitude_2, lampBackground_2, lampAmplitude_2, laserfwhm_2, laserdist_2, λMap_2,
      computedlensmap_2) = res_2
      
     if computedlensmap_1 != computedlensmap_2
@@ -262,7 +270,7 @@ function compare_results(res_1, res_2)
         end
         @warn "different specpos_fits_cλ, example lens $bad: $(specpos_fits_cλ_1[:,bad]) != $(specpos_fits_cλ_2[:,bad])"
     end
-     
+    
     if !equalOrNans(laserAmplitude_1[:,clm], laserAmplitude_2[:,clm])
         bad = 0
         for i in findall(clm)
@@ -273,6 +281,17 @@ function compare_results(res_1, res_2)
         end
         @warn "different laserAmplitude, example lens $bad: $(laserAmplitude_1[:,bad]) != $(laserAmplitude_2[:,bad])"
 
+    end
+    
+    if !equalOrNans(lampBackground_1[clm], lampBackground_2[clm])
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(lampBackground_1[i], lampBackground_2[i])
+                bad = i
+                break
+            end
+        end
+        @warn "different lampBackground, example lens $bad: $(lampBackground_1[:,bad]) != $(lampBackground_2[:,bad])"
     end
     
     if !equalOrNans(lampAmplitude_1[:,clm], lampAmplitude_2[:,clm])

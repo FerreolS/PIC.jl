@@ -19,7 +19,7 @@ function apply_reference(ref::Float64, x::Float64) ::Float64
     (x - ref) / ref
 end
 
-function compute_polynome_with_reference(ref::Float64,coefs::Vector{Float64}, x::Float64) ::Float64
+function compute_polynome_with_reference(ref::Float64, coefs::Vector{Float64},x::Float64) ::Float64
     refed_x = apply_reference(ref, x)
     compute_polynome(coefs, refed_x)
 end
