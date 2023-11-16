@@ -22,7 +22,7 @@ wavelamps_λlasers = WAVELAMPS_λLASERS[1:3]
 
 (cx0, mcx1, mcx2, cy0, mcy1, mcy2) = get_anthony_cxy(λ0)
 
-lenses_positions = hcat(cx0, cy0)
+lenses_positions = vcat(cx0', cy0')
 cxinit = [ mcx1, mcx2]
 cyinit = [ mcy1, mcy2]
 
