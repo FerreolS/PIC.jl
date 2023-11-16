@@ -291,7 +291,7 @@ function compare_results(res_1, res_2)
                 break
             end
         end
-        @warn "different lampBackground, example lens $bad: $(lampBackground_1[:,bad]) != $(lampBackground_2[:,bad])"
+        @warn "different lampBackground, example lens $bad: $(lampBackground_1[bad]) != $(lampBackground_2[bad])"
     end
     
     if !equalOrNans(lampAmplitude_1[:,clm], lampAmplitude_2[:,clm])
@@ -306,10 +306,22 @@ function compare_results(res_1, res_2)
         show(stdout, MIME"text/plain"(), lampAmplitude_1[:,bad])
         println("!=")
         show(stdout, MIME"text/plain"(), lampAmplitude_2[:,bad])
+        println()
     end
     
     if !equalOrNans(laserfwhm_1[:,clm], laserfwhm_2[:,clm])
-        @warn "different laserfwhm"
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(laserfwhm_1[:,i], laserfwhm_2[:,i])
+                bad = i
+                break
+            end
+        end
+        @warn "different laserfwhm, example lens $bad: "
+        show(stdout, MIME"text/plain"(), laserfwhm_1[:,bad])
+        println("!=")
+        show(stdout, MIME"text/plain"(), laserfwhm_2[:,bad])
+        println()
     end
     
     if !equalOrNans(laserdist_1, laserdist_2)

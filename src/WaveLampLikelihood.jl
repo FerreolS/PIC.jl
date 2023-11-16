@@ -1,6 +1,5 @@
 struct WaveLampLikelihood{ Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float64} }
     λ0 ::Float64
-    order ::Int
     λs ::Vector{Float64}
     box ::BoundingBox{Int}
     data ::Md
@@ -9,10 +8,8 @@ struct WaveLampLikelihood{ Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float
     last_amp ::Vector{Float64}
     
     function WaveLampLikelihood{Md,Mw}(
-        λ0, order, λs, box, data, weights, last_amp) where {Md,Mw}
+        λ0, λs, box, data, weights, last_amp) where {Md,Mw}
     
-        length(λs) > order || throw(DimensionMismatch(
-            "`order` must be strictly less than `length(λs)`"))
         size(box) == size(data) || throw(DimensionMismatch(
             "size of `box` must match the size of `data`"))
         size(data) == size(weights) || throw(DimensionMismatch(
@@ -20,43 +17,25 @@ struct WaveLampLikelihood{ Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float
         length(last_amp) == length(λs) || throw(DimensionMismatch(
             "length of `last_amp` must be `length(λs)`"))
         
-        new{Md,Mw}(λ0, order, λs, box, data, weights, last_amp)
+        new{Md,Mw}(λ0, λs, box, data, weights, last_amp)
     end
 end
 
 function WaveLampLikelihood(
-    λ0::Float64, order::Int, λs::Vector{Float64}, box::BoundingBox{Int}, data::Md, weights::Mw
+    λ0::Float64, λs::Vector{Float64}, box::BoundingBox{Int}, data::Md, weights::Mw
 ) where { Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float64} }
     
     last_amp = similar(λs)
-    WaveLampLikelihood{Md,Mw}(λ0, order, λs, box, data, weights, last_amp)
+    WaveLampLikelihood{Md,Mw}(λ0, λs, box, data, weights, last_amp)
 end
 
-function decode_WaveLampLikelihood_input(
-    nλ::Int, order::Int, V::Vector{Float64}) ::NTuple{3,Vector{Float64}}
-    
-    start_fwhms = 1
-    end_fwhms   = nλ
-    
-    start_cx    = end_fwhms + 1
-    end_cx      = start_cx + order
-    
-    start_cy    = end_cx   + 1
-    end_cy      = start_cy + order
-    
-    fwhms = V[start_fwhms : end_fwhms]
-    cx    = V[start_cx    : end_cx]
-    cy    = V[start_cy    : end_cy]
-    
-    (fwhms, cx, cy)
-end
+function (self::WaveLampLikelihood)(M::Matrix{Float64}) ::Float64
 
-function (self::WaveLampLikelihood)(V::Vector{Float64}) ::Float64
-
-    nλ = length(self.λs)
-
-    (fwhms, cx, cy) = decode_WaveLampLikelihood_input(nλ, self.order, V)
+    fwhms = M[:,1]
+    cx    = M[:,2]
+    cy    = M[:,3]
         
+    nλ = length(self.λs)
     (xs, ys) = axes(self.box)
     
     @inbounds begin
@@ -69,7 +48,7 @@ function (self::WaveLampLikelihood)(V::Vector{Float64}) ::Float64
             ctr_x = spots_ctrs_x[i]
             ctr_y = spots_ctrs_y[i]
             radiusmatrix = @. (xs - ctr_x)^2 + ((ys - ctr_y)^2)'
-            GaussianModel2.(radiusmatrix, fwhms[i])
+            Gaussian.(radiusmatrix, fwhms[i])
         end
     end
     

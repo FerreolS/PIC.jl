@@ -34,14 +34,10 @@ function SpecPosLikelihood(
     SpecPosLikelihood{Md,Mw,Mm}(λ0, order, box, data, weights, λMap, last_background, last_amps)
 end
 
-function decode_SpecPosLikelihood_input(M::Matrix{Float64}) ::NTuple{2,Vector{Float64}}
+function (self::SpecPosLikelihood)(M::Matrix{Float64})::Float64
+
     cx = M[:,1]
     cλ = M[:,2]
-    (cx, cλ)
-end
-
-function (self::SpecPosLikelihood)(M::Matrix{Float64})::Float64
-    (cx, cλ) = decode_SpecPosLikelihood_input(M)
     
     @inbounds begin
         xs = polynome_with_reference(self.λ0, cx).(self.λMap)
@@ -49,7 +45,7 @@ function (self::SpecPosLikelihood)(M::Matrix{Float64})::Float64
             
         relative_xs = (xs .- axes(self.box,1)) .^ 2
         
-        model = GaussianModel2.(relative_xs, fwhms)
+        model = Gaussian.(relative_xs, fwhms)
         
         model = model ./ sum(model; dims=1)  # normalize at 1 along x axis
     end
