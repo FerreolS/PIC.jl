@@ -5,7 +5,7 @@
 
 module PIC
 
-export WAVELAMPS_λLASERS,
+export WAVELAMPS_λLASERS_YJ, WAVELAMPS_λLASERS_YJH,
        DXMIN, DXMAX, DYMIN, DYMAX,
        BOX_FRAME,
        get_anthony_cxy,
@@ -25,7 +25,8 @@ const (DXMIN, DXMAX, DYMIN, DYMAX) = (2, 2, 21, 18)
 
 const BOX_FRAME = (DXMIN, DXMAX, DYMIN, DYMAX)
 
-const WAVELAMPS_λLASERS = [ 987.72e-9, 1123.71e-9, 1309.37e-9, 1545.10e-9 ]
+const WAVELAMPS_λLASERS_YJH = [ 987.72e-9, 1123.71e-9, 1309.37e-9, 1545.10e-9 ]
+const WAVELAMPS_λLASERS_YJ  = WAVELAMPS_λLASERS_YJH[1:3]
 
 const IFS_λRANGE = LinRange(850e-9, 1600e-9, 10_000)
 

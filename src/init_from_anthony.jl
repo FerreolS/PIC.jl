@@ -1,24 +1,31 @@
-const ANTHONY_CX_PATH = "resources/anthony_cx.txt"
-const ANTHONY_CY_PATH = "resources/anthony_cy.txt"
+const ANTHONY_YJ_CX_PATH  = "resources/anthony_cx.txt"
+const ANTHONY_YJ_CY_PATH  = "resources/anthony_cy.txt"
+const ANTHONY_YJH_CX_PATH = "resources/coef_pol_x.txt"
+const ANTHONY_YJH_CY_PATH = "resources/coef_pol_y.txt"
 
-function get_anthony_cxy(λ0)
+function get_anthony_cxy(λ0, ifsmode)
     
     src_path = pathof(PIC) |> dirname
     
-    cx_path = joinpath(src_path, ANTHONY_CX_PATH)
-    cy_path = joinpath(src_path, ANTHONY_CY_PATH)
+    cx_path = (ifsmode == :YJ)  ? joinpath(src_path, ANTHONY_YJ_CX_PATH)  :
+              (ifsmode == :YJH) ? joinpath(src_path, ANTHONY_YJH_CX_PATH) :
+              error()
+  
+    cy_path = (ifsmode == :YJ)  ? joinpath(src_path, ANTHONY_YJ_CY_PATH)  :
+              (ifsmode == :YJH) ? joinpath(src_path, ANTHONY_YJH_CY_PATH) :
+              error()
+    
+    order = (ifsmode == :YJ) ? 2 : (ifsmode == :YJH) ? 3 : error()
     
     cx = readdlm(cx_path, header = false)
     cx0 = cx[:,1] .+ 1025
-    mcx1 = median(cx[:,2]) *  λ0 * 1e6
-    mcx2 = median(cx[:,3]) * (λ0 * 1e6)^2
+    mcxs = map(1:order) do i; median(cx[:,i+1]) * (λ0 * 1e6)^i end
 
     cy = readdlm(cy_path, header = false)
     cy0 = cy[:,1] .+ 1025
-    mcy1 = median(cy[:,2]) *  λ0 * 1e6
-    mcy2 = median(cy[:,3]) * (λ0 * 1e6)^2
+    mcys = map(1:order) do i; median(cy[:,i+1]) * (λ0 * 1e6)^i end
     
-    (cx0, mcx1, mcx2, cy0, mcy1, mcy2)
+    (cx0, mcxs, cy0, mcys)
 end
 
 function compute_first_valid_lenses_map(cx0, cy0, dxmin, dxmax, dymin, dymax)

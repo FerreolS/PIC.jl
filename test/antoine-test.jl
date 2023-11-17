@@ -16,15 +16,15 @@ ENV["JULIA_DEBUG"] = Main.PIC
 
 # wavelengths
 
-wavelamps_λlasers = WAVELAMPS_λLASERS[1:3]
+wavelamps_λlasers = WAVELAMPS_λLASERS_YJ
 
 λ0 = mean(wavelamps_λlasers)
 
-(cx0, mcx1, mcx2, cy0, mcy1, mcy2) = get_anthony_cxy(λ0)
+(cx0, mcxs, cy0, mcys) = get_anthony_cxy(λ0, :YJ)
 
 lenses_positions = vcat(cx0', cy0')
-cxinit = [ mcx1, mcx2]
-cyinit = [ mcy1, mcy2]
+cxinit = mcxs
+cyinit = mcys
 
 fwhminit = [2.3, 2.4 , 2.7];
 

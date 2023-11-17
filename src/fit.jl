@@ -57,7 +57,7 @@ function fit_wavelamps_specpos(
     sepcpos_fits_amps       = fill(NaN64, box_size[2], nb_lenses)
     
     progress = Progress(nb_lenses; showspeed=true)
-    Threads.@threads for i in findall(valid_lenses_map)[1:100:end]
+    Threads.@threads for i in findall(valid_lenses_map)#[1:100:end]
 
         box = lensboxs[i]
 
@@ -127,7 +127,7 @@ function fit_wavelamps_specpos(
     end
     finish!(progress)
    
-    FitResult(;
+    FitResult(
         lensboxs, λ0,
         wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
         wavelamps_fits_fwhm, wavelamps_fits_amp,
@@ -190,6 +190,4 @@ struct FitResult
     sepcpos_fits_amps       ::Matrix{Float64}
 
     computed_lenses_map ::Vector{Bool}
-
-    function FitResult(; args...) return new(args...) end
 end
