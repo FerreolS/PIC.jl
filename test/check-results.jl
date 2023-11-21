@@ -115,26 +115,18 @@ function get_summary(fitresult)
     end
     
     # wavelamps_fits_fwhm
-    median_wavelamps_fits_fwhm1, mad_wavelamps_fits_fwhm1 =
-        keep_numbers(wavelamps_fits_fwhm[1,goods]) |> x -> (median(x), mad(x))
-    median_wavelamps_fits_fwhm2, mad_wavelamps_fits_fwhm2 =
-        keep_numbers(wavelamps_fits_fwhm[2,goods]) |> x -> (median(x), mad(x))
-    median_wavelamps_fits_fwhm3, mad_wavelamps_fits_fwhm3 =
-        keep_numbers(wavelamps_fits_fwhm[3,goods]) |> x -> (median(x), mad(x))
-    median_wavelamps_fits_fwhm = [ median_wavelamps_fits_fwhm1 mad_wavelamps_fits_fwhm1 ;
-                                   median_wavelamps_fits_fwhm2 mad_wavelamps_fits_fwhm2 ;
-                                   median_wavelamps_fits_fwhm3 mad_wavelamps_fits_fwhm3 ]
+    medianMad_wavelamps_fits_fwhm = fill(NaN, size(wavelamps_fits_fwhm,1), 2)
+    for i in 1:size(wavelamps_fits_fwhm,1)
+        medianMad_wavelamps_fits_fwhm[i,:] .=
+            keep_numbers(wavelamps_fits_fwhm[i,goods]) |> x -> (median(x), mad(x))
+    end
     
     # wavelamps_fits_amp
-    median_wavelamps_fits_amp1, mad_wavelamps_fits_amp1 =
-        keep_numbers(wavelamps_fits_amp[1,goods]) |> x -> (median(x), mad(x))
-    median_wavelamps_fits_amp2, mad_wavelamps_fits_amp2 =
-        keep_numbers(wavelamps_fits_amp[2,goods]) |> x -> (median(x), mad(x))
-    median_wavelamps_fits_amp3, mad_wavelamps_fits_amp3 =
-        keep_numbers(wavelamps_fits_amp[3,goods]) |> x -> (median(x), mad(x))
-    median_wavelamps_fits_amp = [ median_wavelamps_fits_amp1 mad_wavelamps_fits_amp1 ;
-                                  median_wavelamps_fits_amp2 mad_wavelamps_fits_amp2 ;
-                                  median_wavelamps_fits_amp3 mad_wavelamps_fits_amp3 ]
+    medianMad_wavelamps_fits_amp = fill(NaN, size(wavelamps_fits_amp,1), 2)
+    for i in 1:size(wavelamps_fits_amp,1)
+        medianMad_wavelamps_fits_amp[i,:] .=
+            keep_numbers(wavelamps_fits_amp[i,goods]) |> x -> (median(x), mad(x))
+    end
 
     # wavelamps_centers_dists
     medianMad_wavelamps_centers_dists = fill(NaN, 5, 2)
@@ -185,7 +177,7 @@ function get_summary(fitresult)
 
     (; nbgoods, λ0, wavelamp_order,
        quantiles_wavelamps_fits_cx, quantiles_wavelamps_fits_cy,
-       median_wavelamps_fits_fwhm, median_wavelamps_fits_amp,
+       medianMad_wavelamps_fits_fwhm, medianMad_wavelamps_fits_amp,
        medianMad_wavelamps_centers_dists, medianMad_wavelamps_λvals,
        quantiles_specpos_fits_cx, quantiles_specpos_fits_cλ,
        medianMad_sepcpos_fits_amps, medianMad_specpos_fits_background)

@@ -26,8 +26,6 @@ lenses_positions = vcat(cx0', cy0')
 cxinit = mcxs
 cyinit = mcys
 
-fwhminit = [2.3, 2.4 , 2.7];
-
 valid_lenses_map = compute_first_valid_lenses_map(cx0, cy0, DXMIN, DXMAX, DYMIN, DYMAX)
 
 wavelamps_data_cube    = readfits(Array{Float64}, wavelamps_filepath)
@@ -36,23 +34,16 @@ wavelamps_weights_cube = readfits(Array{Float64}, wavelamps_filepath; ext="weigh
 specpos_data_cube    = readfits(Array{Float64}, specpos_filepath)
 specpos_weights_cube = readfits(Array{Float64}, specpos_filepath; ext="weights")
 
-wavelamps_data    = zeros(Float64, 2048, 2048)
-wavelamps_weights = zeros(Float64, 2048, 2048)
-specpos_data     = zeros(Float64, 2048, 2048)
-specpos_weights  = zeros(Float64, 2048, 2048)
-for y in 1:2048, x in 1:2048
-    valids = findall(!iszero, wavelamps_weights_cube[x,y,:])
-    wavelamps_data[x,y]    = isempty(valids) ? 0 : mean(wavelamps_data_cube[x,y,valids])
-    wavelamps_weights[x,y] = isempty(valids) ? 0 : length(valids) / sum(1 ./ wavelamps_weights_cube[x,y,valids])
+wavelamps_data, wavelamps_weights = mean_data_and_weights(
+    wavelamps_data_cube, wavelamps_weights_cube)
 
-    valids = findall(!iszero, specpos_weights_cube[x,y,:])
-    specpos_data[x,y]    = isempty(valids) ? 0 : mean(specpos_data_cube[x,y,valids])
-    specpos_weights[x,y] = isempty(valids) ? 0 : length(valids) / sum(1 ./ specpos_weights_cube[x,y,valids])
-end
+specpos_data, specpos_weights = mean_data_and_weights(
+    specpos_data_cube, specpos_weights_cube)
+
 
 output = fit_wavelamps_specpos(
     lenses_positions,
-    wavelamps_λlasers, wavelamps_data, wavelamps_weights, fwhminit, cxinit, cyinit,
+    wavelamps_λlasers, wavelamps_data, wavelamps_weights, WAVELAMPS_INIT_FWHM_YJ, cxinit, cyinit,
     specpos_data, specpos_weights
     ; λ0, box_frame = BOX_FRAME, valid_lenses_map)
 
