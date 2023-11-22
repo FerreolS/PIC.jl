@@ -11,9 +11,9 @@ function get_result(filepath::String)
         
         computed_lenses_map = read(Array{Bool}, fitsfile["computed_lenses_map"])
 
-        lensboxs = read(fitsfile["lensboxs"])
+        lenses_boxes = read(fitsfile["lenses_boxes"])
         
-        lensboxs = map(Base.splat(BoundingBox{Int}), eachcol(lensboxs))
+        lenses_boxes = map(Base.splat(BoundingBox{Int}), eachcol(lenses_boxes))
         
         wavelamp_order          = fitsfile["wavelamps_fits_cx"]["ORDER"].integer
         λ0                      = fitsfile["wavelamps_fits_cx"]["L0"].float
@@ -30,7 +30,7 @@ function get_result(filepath::String)
         specpos_fits_background = read(fitsfile["specpos_fits_background"])
         sepcpos_fits_amps       = read(fitsfile["sepcpos_fits_amps"])
            
-        FitResult(lensboxs, λ0,
+        FitResult(lenses_boxes, λ0,
          wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
          wavelamps_fits_fwhm, wavelamps_fits_amp,
          wavelamps_centers_dists, wavelamps_λvals,
@@ -42,21 +42,21 @@ end
 
 function store_result(filepath, fitresult)
 
-    (lensboxs, λ0,
+    (lenses_boxes, λ0,
         wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
         wavelamps_fits_fwhm, wavelamps_fits_amp,
         wavelamps_centers_dists, wavelamps_λvals,
         specpos_order, specpos_fits_cx, specpos_fits_cλ,
         specpos_fits_background, sepcpos_fits_amps,
-        computed_lenses_map) = map(p -> getproperty(output, p), propertynames(output))
+        computed_lenses_map) = map(p -> getproperty(fitresult, p), propertynames(fitresult))
 
-    lensboxs = reduce(hcat, map(b -> [b...], lensboxs))
+    lenses_boxes = reduce(hcat, map(b -> [b...], lenses_boxes))
 
     fitsfile = FitsFile(filepath, "w!")
 
     write(fitsfile, FitsHeader("HDUNAME" => "computed_lenses_map"), computed_lenses_map)
     
-    write(fitsfile, FitsHeader("EXTNAME" => "lensboxs"), lensboxs)
+    write(fitsfile, FitsHeader("EXTNAME" => "lenses_boxes"), lenses_boxes)
     
     write(fitsfile,
         FitsHeader("EXTNAME" => "wavelamps_fits_cx", "ORDER" => wavelamp_order, "L0" => λ0),
@@ -88,80 +88,80 @@ end
 
 function get_summary(fitresult)
 
-    (lensboxs, λ0,
+    (lenses_boxes, λ0,
      wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
      wavelamps_fits_fwhm, wavelamps_fits_amp,
      wavelamps_centers_dists, wavelamps_λvals,
      specpos_order, specpos_fits_cx, specpos_fits_cλ,
      specpos_fits_background, sepcpos_fits_amps,
-     computed_lenses_map) = map(p -> getproperty(output, p), propertynames(output))
+     computed_lenses_map) = map(p -> getproperty(fitresult, p), propertynames(fitresult))
 
     goods = findall(computed_lenses_map)
     
     nbgoods = length(goods)
     
     # wavelamps_fits_cx
-    quantiles_wavelamps_fits_cx = fill(NaN, (21, wavelamp_order + 1))
+    quantiles_wavelamps_fits_cx = fill(NaN64, (21, wavelamp_order + 1))
     for a in 1:wavelamp_order+1
         data = wavelamps_fits_cx[a,goods]
         quantiles_wavelamps_fits_cx[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
     
     # wavelamps_fits_cy
-    quantiles_wavelamps_fits_cy = fill(NaN, (21, wavelamp_order + 1))
+    quantiles_wavelamps_fits_cy = fill(NaN64, (21, wavelamp_order + 1))
     for a in 1:wavelamp_order+1
         data = wavelamps_fits_cy[a,goods]
         quantiles_wavelamps_fits_cy[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
     
     # wavelamps_fits_fwhm
-    medianMad_wavelamps_fits_fwhm = fill(NaN, size(wavelamps_fits_fwhm,1), 2)
+    medianMad_wavelamps_fits_fwhm = fill(NaN64, size(wavelamps_fits_fwhm,1), 2)
     for i in 1:size(wavelamps_fits_fwhm,1)
         medianMad_wavelamps_fits_fwhm[i,:] .=
             keep_numbers(wavelamps_fits_fwhm[i,goods]) |> x -> (median(x), mad(x))
     end
     
     # wavelamps_fits_amp
-    medianMad_wavelamps_fits_amp = fill(NaN, size(wavelamps_fits_amp,1), 2)
+    medianMad_wavelamps_fits_amp = fill(NaN64, size(wavelamps_fits_amp,1), 2)
     for i in 1:size(wavelamps_fits_amp,1)
         medianMad_wavelamps_fits_amp[i,:] .=
             keep_numbers(wavelamps_fits_amp[i,goods]) |> x -> (median(x), mad(x))
     end
 
     # wavelamps_centers_dists
-    medianMad_wavelamps_centers_dists = fill(NaN, 5, 2)
+    medianMad_wavelamps_centers_dists = fill(NaN64, 5, 2)
     for c in 1:5
-        cs = [ wavelamps_centers_dists[lensboxs[i]][c,:] for i in goods ]
+        cs = [ wavelamps_centers_dists[lenses_boxes[i]][c,:] for i in goods ]
         m, s = keep_numbers(reduce(vcat, cs)) |> x -> (median(x), mad(x))
         medianMad_wavelamps_centers_dists[c,1] = m
         medianMad_wavelamps_centers_dists[c,2] = s
     end
     
     # wavelamps_λvals
-    medianMad_wavelamps_λvals = fill(NaN, 40, 2)
+    medianMad_wavelamps_λvals = fill(NaN64, 40, 2)
     for l in 1:40
-        ls = [ wavelamps_λvals[lensboxs[i]][:,l] for i in goods ]
+        ls = [ wavelamps_λvals[lenses_boxes[i]][:,l] for i in goods ]
         m, s = keep_numbers(reduce(vcat, ls)) |> x -> (median(x), mad(x))
         medianMad_wavelamps_λvals[l,1] = m
         medianMad_wavelamps_λvals[l,2] = s
     end
 
     # specpos_fits_cx
-    quantiles_specpos_fits_cx = fill(NaN, (21, specpos_order + 1))
+    quantiles_specpos_fits_cx = fill(NaN64, (21, specpos_order + 1))
     for a in 1:specpos_order+1
         data = specpos_fits_cx[a,goods]
         quantiles_specpos_fits_cx[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
     
     # specpos_fits_cλ
-    quantiles_specpos_fits_cλ = fill(NaN, (21, specpos_order + 1))
+    quantiles_specpos_fits_cλ = fill(NaN64, (21, specpos_order + 1))
     for a in 1:specpos_order+1
         data = specpos_fits_cλ[a,goods]
         quantiles_specpos_fits_cλ[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
 
     # specpos_fits_amps
-    medianMad_sepcpos_fits_amps = fill(NaN, 40, 2)
+    medianMad_sepcpos_fits_amps = fill(NaN64, 40, 2)
     for i in 1:40
         m, s = keep_numbers(sepcpos_fits_amps[i, goods]) |> x -> (median(x), mad(x))
         medianMad_sepcpos_fits_amps[i,1] = m
@@ -169,7 +169,7 @@ function get_summary(fitresult)
     end
 
     # specpos_fits_background
-    medianMad_specpos_fits_background = fill(NaN, 1, 2)
+    medianMad_specpos_fits_background = fill(NaN64, 1, 2)
     m, s = keep_numbers(specpos_fits_background[goods]) |> x -> (median(x), mad(x))
     medianMad_specpos_fits_background[1,1] = m
     medianMad_specpos_fits_background[1,2] = s
@@ -212,7 +212,7 @@ function compare_results(r1, r2)
     
     clm = (&).(r1.computed_lenses_map, r2.computed_lenses_map)
      
-    if r1.lensboxs[clm] != r2.lensboxs[clm]
+    if r1.lenses_boxes[clm] != r2.lenses_boxes[clm]
         @warn "different lensbox"
     end
      

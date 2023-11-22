@@ -1,50 +1,69 @@
 function fit_wavelamps_specpos(
-    lenses_positions ::Matrix{Float64},
+    lenses_positions ::AbstractMatrix{Float64},
     
-    wavelamps_λlasers ::Vector{Float64},
-    wavelamps_data    ::Matrix{T},
-    wavelamps_weights ::Matrix{T},
-    wavelamps_fwhm_init ::Vector{Float64},
-    wavelamps_cx_init   ::Vector{Float64},
-    wavelamps_cy_init   ::Vector{Float64},
+    wavelamps_λlasers ::AbstractVector{Float64},
+    wavelamps_data    ::AbstractMatrix{T},
+    wavelamps_weights ::AbstractMatrix{T},
+    wavelamps_fwhm_init ::AbstractVector{Float64},
+    wavelamps_cx_init   ::AbstractVector{Float64},
+    wavelamps_cy_init   ::AbstractVector{Float64},
     
-    specpos_data      ::Matrix{T},
-    specpos_weights   ::Matrix{T},
+    specpos_data      ::AbstractMatrix{T},
+    specpos_weights   ::AbstractMatrix{T},
     
     ; specpos_order ::Int = 2,
-      λ0 ::Float64 = mean(wavelamps_λlasers),
-      λrange ::AbstractRange{Float64} = IFS_λRANGE,
+      λ0        ::Float64 = mean(wavelamps_λlasers),
+      λrange    ::AbstractRange{Float64} = IFS_λRANGE,
       box_frame ::NTuple{4,Int} = BOX_FRAME,
       valid_lenses_map ::AbstractVector{Bool} = trues(size(lenses_positions,2))
+      
 ) ::FitResult where {T<:Real}
 
     nb_lenses = size(lenses_positions,2)
+    nλ = length(wavelamps_λlasers)
+    wavelamp_order = nλ - 1
     
+    size(wavelamps_data) == (2048,2048) || throw(DimensionMismatch(
+        "size of `wavelamps_data` must be (2048,2048)"))
+    
+    size(wavelamps_weights) == (2048,2048) || throw(DimensionMismatch(
+        "size of `wavelamps_weights` must be (2048,2048)"))
+    
+    nλ == length(wavelamps_fwhm_init) || throw(DimensionMismatch(
+        "length of `wavelamps_fwhm_init` must be equal to length of `wavelamps_λlasers`"))
+    
+    wavelamp_order == length(wavelamps_cx_init) || throw(DimensionMismatch(
+        "length of `wavelamps_cx_init` must be equal to length of `wavelamps_λlasers - 1`"))
+    
+    wavelamp_order == length(wavelamps_cy_init) || throw(DimensionMismatch(
+        "length of `wavelamps_cy_init` must be equal to length of `wavelamps_λlasers - 1`"))
+        
+    size(specpos_data) == (2048,2048) || throw(DimensionMismatch(
+        "size of `specpos_data` must be (2048,2048)"))
+    
+    size(specpos_weights) == (2048,2048) || throw(DimensionMismatch(
+        "size of `specpos_weights` must be (2048,2048)"))
+        
     nb_lenses == length(valid_lenses_map) || throw(DimensionMismatch(
-        "size of `position` incompatible with size of `valid_lenses_map`"))
-    
-    length(wavelamps_λlasers) == length(wavelamps_fwhm_init) || throw(DimensionMismatch(
-        "size of `wavelamps_λlasers` incompatible with size of `fwhminit`"))
+        "`size(lenses_positions,2)` must be equal to length of `valid_lenses_map`"))
     
     # map of the computed lenses (i.e the non-catch-error ones)
     computed_lenses_map ::Vector{Bool} = falses(nb_lenses)
-    
-    nλ = length(wavelamps_λlasers)
-    wavelamp_order = nλ - 1
 
     (dxmin, dxmax, dymin, dymax) = box_frame
     box_size = (dxmax + dxmin + 1, dymin + dymax + 1)
+    box_size[1] ≥ 1 && box_size[2] ≥ 1 || throw(DimensionMismatch())
     
-    lensboxs = Vector{BoundingBox{Int}}(undef, nb_lenses)
+    lenses_boxes = Vector{BoundingBox{Int}}(undef, nb_lenses)
     for (i, (x,y)) in enumerate(eachcol(lenses_positions))
         box = BoundingBox(x - dxmin, x + dxmax, y - dymin, y + dymax)
         # RoundNearestTiesUp to enforce box size (special case of `.5` floats)
-        lensboxs[i] = round(Int, box, RoundNearestTiesUp)
-        size(lensboxs[i]) == box_size || error("incorrect box size")
+        lenses_boxes[i] = round(Int, box, RoundNearestTiesUp)
+        size(lenses_boxes[i]) == box_size || error("incorrect box size")
     end
     
-    wavelamps_fits_cx = fill(NaN64, wavelamp_order + 1, nb_lenses)
-    wavelamps_fits_cy = fill(NaN64, wavelamp_order + 1, nb_lenses)
+    wavelamps_fits_cx   = fill(NaN64, wavelamp_order + 1, nb_lenses)
+    wavelamps_fits_cy   = fill(NaN64, wavelamp_order + 1, nb_lenses)
     wavelamps_fits_fwhm = fill(NaN64, nλ, nb_lenses)
     wavelamps_fits_amp  = fill(NaN64, nλ, nb_lenses)
     
@@ -57,9 +76,12 @@ function fit_wavelamps_specpos(
     sepcpos_fits_amps       = fill(NaN64, box_size[2], nb_lenses)
     
     progress = Progress(nb_lenses; showspeed=true)
-    Threads.@threads for i in findall(valid_lenses_map)#[1:100:end]
+    Threads.@threads for i in findall(valid_lenses_map)[1:100:end]
 
-        box = lensboxs[i]
+        box = lenses_boxes[i]
+        
+        # skip box if out of data range
+        (1 ≤ box.xmin < box.xmax ≤ 2048) && (1 ≤ box.ymin < box.ymax ≤ 2048) || continue
 
         # Fit WaveLamp
         
@@ -112,13 +134,13 @@ function fit_wavelamps_specpos(
             @debug "Error on lenslet  $i" exception=(e,catch_backtrace())
             continue
         end
-        # call one last time, to ensure that `last_amps` is updated from the final `profilecoefs`
+        # call one last time, to ensure that `last_amps` is updated from final `specpos_fit_params`
         specpos_lkl(specpos_fit_params)
         
         specpos_fits_cx[:,i]       .= specpos_fit_params[:,1]
         specpos_fits_cλ[:,i]       .= specpos_fit_params[:,2]
-        sepcpos_fits_amps[:,i]     .= specpos_lkl.last_amps
         specpos_fits_background[i]  = specpos_lkl.last_background.x
+        sepcpos_fits_amps[:,i]     .= specpos_lkl.last_amps
         
         # if we are here the computation was complete
         computed_lenses_map[i] = true
@@ -128,7 +150,7 @@ function fit_wavelamps_specpos(
     finish!(progress)
    
     FitResult(
-        lensboxs, λ0,
+        lenses_boxes, λ0,
         wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
         wavelamps_fits_fwhm, wavelamps_fits_amp,
         wavelamps_centers_dists, wavelamps_λvals,
@@ -171,7 +193,7 @@ end
 
 struct FitResult
 
-    lensboxs ::Vector{BoundingBox{Int}}
+    lenses_boxes ::Vector{BoundingBox{Int}}
     λ0       ::Float64
 
     wavelamp_order      ::Int

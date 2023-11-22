@@ -27,12 +27,3 @@ function get_anthony_cxy(λ0, ifsmode)
     
     (cx0, mcxs, cy0, mcys)
 end
-
-function compute_first_valid_lenses_map(cx0, cy0, dxmin, dxmax, dymin, dymax)
-    return (
-            ((cx0 .- dxmin) .≥ 1)
-        .&  ((cx0 .+ dxmax) .≤ 2048)
-        .&  ((cy0 .- dymin) .≥ 1)
-        .&  ((cy0 .+ dymax) .≤ 2048)
-    )
-end
