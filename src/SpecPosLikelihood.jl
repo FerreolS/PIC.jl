@@ -51,7 +51,7 @@ function (self::SpecPosLikelihood)(M::Matrix{Float64})::Float64
     end
     
     Zygote.@ignore begin
-        (background, amps) = updateAmplitudeAndBackground(model, self.data, self.weights)
+        (background, amps) = computeAmplitudeAndBackgroundSpecPos(model, self.data, self.weights)
         self.last_background.x = background
         self.last_amps .= amps
     end
@@ -65,29 +65,38 @@ function (self::SpecPosLikelihood)(M::Matrix{Float64})::Float64
     cost
 end
 
-function updateAmplitudeAndBackground(profile,data::MA,weight::MB) where {T<:AbstractFloat,MA<:AbstractMatrix{T},MB<:AbstractMatrix{T}}
+# note that the gaussians are disjoint: each gaussian fills a line on the box, and has
+# absolutely no data on other lines. Note that if we had used 2D gaussians,
+# the matrix A would not be invertible.
+function computeAmplitudeAndBackgroundSpecPos(
+    profile ::AbstractMatrix{Float64},
+    data    ::AbstractMatrix{Float64},
+    weights ::AbstractMatrix{Float64}
+) ::Tuple{Float64, Vector{Float64}}
 
-    c = @. profile *  weight
-    b = @. profile * data * weight
-    a = @. profile^2 * weight
-    a = sum(a,dims=1)[:]
-    b = sum(b,dims=1)[:]
-    c = sum(c,dims=1)[:]
-    za = (a .== T(0)).||(b.<=T(0))
+    a = sum(profile.^2 .* weights         ; dims=1)
+    c = sum(profile    .* weights         ; dims=1)
+    b = sum(profile    .* weights .* data ; dims=1)
+    
+    a = reshape(a, :)
+    b = reshape(b, :)
+    c = reshape(c, :)
+    
+    # replacing empty data with dummy values
+    za =  iszero.(a) .| (b .≤ 0e0)
     if any(za)
-        a[za] .=T(1)
-        b[za] .=T(0)
-        c[za] .=T(0)
+        a[za] .= 1e0
+        b[za] .= 0e0
+        c[za] .= 0e0
     end
 
-
     N = length(a)
-    A = Matrix{T}(undef,N+1,N+1)
-    A[1,1] = sum(weight)
-    A[1,2:end] .= A[2:end,1] .= c[:]
+    A = Matrix{Float64}(undef, N+1, N+1)
+    A[1,1] = sum(weights)
+    A[1,2:end] .= A[2:end,1] .= c
     A[2:end,2:end] .= diagm(a)
 
-    b =  vcat(sum(data .* weight),b[:])
+    b = [ sum(data .* weights); b ]
 
     v =  inv(A)*b
     background = v[1]

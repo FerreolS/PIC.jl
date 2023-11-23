@@ -54,7 +54,7 @@ function (self::WaveLampLikelihood)(M::Matrix{Float64}) ::Float64
     
     # amplitude of gaussian spots
     Zygote.@ignore begin
-        self.last_amp .= updateAmplitudeWaveLamp(list_spots, self.data, self.weights)
+        self.last_amp .= computeAmplitudeWaveLamp(list_spots, self.data, self.weights)
         any(isnan, self.last_amp) && error("NaN amplitude: \"$(self.last_amp)\"")
     end
 
@@ -69,34 +69,24 @@ function (self::WaveLampLikelihood)(M::Matrix{Float64}) ::Float64
     cost
 end
 
- """
-        updateAmplitude(nλ,m,d,W)
-
-    return the `nλ` amplitudes `a` according the the model `m`, the data and the precision `W`
-    such that
-    `a = argmin_a || a*m - D||^2_W`
-    where
-    * `nλ` : is the number of spots in the model
-    * `m`:  is the model composed of `nλ` images of spots
-    * `d`:  is the data
-    * `W`: is the precision (inverse variance) of the data
-"""
-function updateAmplitudeWaveLamp(
+function computeAmplitudeWaveLamp(
     spots::Vector{Matrix{Float64}}, data::AbstractArray{Float64}, weights::AbstractArray{Float64})
     
     N = length(spots)
     A = @MMatrix zeros(Float64,N,N)
     b = @MVector zeros(Float64,N)
-    mw = Array{Float64}(undef, size(data)..., N);
-    @inbounds for index=1:N
-        mw[:,:,index] .=  spots[index] .* weights ;
-        b[index] = sum(mw[:,:,index].* data );
-        A[index,index] = sum(mw[:,:,index].* spots[index]);
-        for i=1:index-1
-            A[i,index] = A[index,i] = sum(mw[:,:,index].* spots[i])
+    mw = Matrix{Float64}(undef, size(data))
+    
+    @inbounds for i in 1:N
+        mw .= spots[i] .* weights
+        b[i] = sum(mw .* data)
+        A[i,i] = sum(mw .* spots[i])
+        for j in 1:i-1
+            A[j,i] = A[i,j] = sum(mw .* spots[j])
         end
     end
-    return inv(A)*b
+    amps = inv(A)*b
+    amps
 end
 
 

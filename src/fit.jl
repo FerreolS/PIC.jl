@@ -76,7 +76,7 @@ function fit_wavelamps_specpos(
     sepcpos_fits_amps       = fill(NaN64, box_size[2], nb_lenses)
     
     progress = Progress(nb_lenses; showspeed=true)
-    Threads.@threads for i in findall(valid_lenses_map)[1:100:end]
+    Threads.@threads for i in findall(valid_lenses_map)[12000]#[1:100:end]
 
         box = lenses_boxes[i]
         
