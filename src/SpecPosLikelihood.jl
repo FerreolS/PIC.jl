@@ -66,8 +66,7 @@ function (self::SpecPosLikelihood)(M::Matrix{Float64})::Float64
 end
 
 # note that the gaussians are disjoint: each gaussian fills a line on the box, and has
-# absolutely no data on other lines. Note that if we had used 2D gaussians,
-# the matrix A would not be invertible.
+# absolutely no data on other lines.
 function computeAmplitudeAndBackgroundSpecPos(
     profile ::AbstractMatrix{Float64},
     data    ::AbstractMatrix{Float64},
@@ -82,7 +81,7 @@ function computeAmplitudeAndBackgroundSpecPos(
     b = reshape(b, :)
     c = reshape(c, :)
     
-    # replacing empty data with dummy values
+    # substitute zero lines by dummy values
     za =  iszero.(a) .| (b .≤ 0e0)
     if any(za)
         a[za] .= 1e0

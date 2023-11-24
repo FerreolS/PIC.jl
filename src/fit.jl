@@ -76,17 +76,26 @@ function fit_wavelamps_specpos(
     sepcpos_fits_amps       = fill(NaN64, box_size[2], nb_lenses)
     
     progress = Progress(nb_lenses; showspeed=true)
-    Threads.@threads for i in findall(valid_lenses_map)[12000]#[1:100:end]
+    Threads.@threads for i in findall(valid_lenses_map)
 
         box = lenses_boxes[i]
         
         # skip box if out of data range
-        (1 ≤ box.xmin < box.xmax ≤ 2048) && (1 ≤ box.ymin < box.ymax ≤ 2048) || continue
-
+        (1 ≤ box.xmin < box.xmax ≤ 2048) && (1 ≤ box.ymin < box.ymax ≤ 2048) || begin
+            next!(progress)
+            continue
+        end
+        
         # Fit WaveLamp
         
         lens_wavelamp_data    = view(wavelamps_data,    box)
         lens_wavelamp_weights = view(wavelamps_weights, box)
+        
+        # if more than 50% bad pixels, we skip
+        count(==(0), lens_wavelamp_weights) / length(lens_wavelamp_weights) ≥ 0.5 && begin
+            next!(progress)
+            continue
+        end
         
         wavelamp_lkl = WaveLampLikelihood(
             λ0, wavelamps_λlasers, box, lens_wavelamp_data, lens_wavelamp_weights)
@@ -98,12 +107,13 @@ function fit_wavelamps_specpos(
         
         try vmlmb!(wavelamp_lkl, wavelamp_fit_params
                   ; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
+            # call one last time, to ensure that `last_amp` is produced from the final params
+            wavelamp_lkl(wavelamp_fit_params)
         catch e
             @debug "Error on lenslet $i" exception=(e,catch_backtrace())
+            next!(progress)
             continue
         end
-        # call one last time, to ensure that `last_amp` is produced from the final `fit_params`
-        wavelamp_lkl(wavelamp_fit_params)
         
         wavelamps_fits_fwhm[:,i] .= wavelamp_fit_params[:,1]
         wavelamps_fits_cx[:,i]   .= wavelamp_fit_params[:,2]
@@ -121,21 +131,28 @@ function fit_wavelamps_specpos(
         lens_specpos_data    = view(specpos_data,    box)
         lens_specpos_weights = view(specpos_weights, box)
 
+        # if more than 50% bad pixels, we skip
+        count(==(0), lens_specpos_weights) / length(lens_specpos_weights) ≥ 0.5 && begin
+            next!(progress)
+            continue
+        end
+
         specpos_fit_params = zeros(Float64, specpos_order + 1, 2)
         specpos_fit_params[1,1] = wavelamps_fits_cx[1,i]
         specpos_fit_params[1,2] = mean(wavelamps_fits_fwhm[:,i])
 
         specpos_lkl = SpecPosLikelihood(
             λ0, specpos_order, box, lens_specpos_data, lens_specpos_weights, lens_λvals)
-        try
-            vmlmb!(specpos_lkl, specpos_fit_params
+            
+        try vmlmb!(specpos_lkl, specpos_fit_params
                   ; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
+            # call one last time, to ensure that `last_amps` is updated from final params
+            specpos_lkl(specpos_fit_params)
         catch e
-            @debug "Error on lenslet  $i" exception=(e,catch_backtrace())
+            @debug "Error on lenslet $i" exception=(e,catch_backtrace())
+            next!(progress)
             continue
         end
-        # call one last time, to ensure that `last_amps` is updated from final `specpos_fit_params`
-        specpos_lkl(specpos_fit_params)
         
         specpos_fits_cx[:,i]       .= specpos_fit_params[:,1]
         specpos_fits_cλ[:,i]       .= specpos_fit_params[:,2]

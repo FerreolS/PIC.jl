@@ -69,6 +69,7 @@ function (self::WaveLampLikelihood)(M::Matrix{Float64}) ::Float64
     cost
 end
 
+# weights are assumed not dominated by zeros. unless what the inversion will produce NaNs.
 function computeAmplitudeWaveLamp(
     spots::Vector{Matrix{Float64}}, data::AbstractArray{Float64}, weights::AbstractArray{Float64})
     
@@ -88,5 +89,3 @@ function computeAmplitudeWaveLamp(
     amps = inv(A)*b
     amps
 end
-
-
