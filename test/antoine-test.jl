@@ -57,5 +57,3 @@ result = fit_wavelamps_specpos(
     wavelamps_λlasers, wavelamps_data, wavelamps_weights, WAVELAMPS_INIT_FWHM_YJ, cxinit, cyinit,
     specpos_data, specpos_weights
     ; λ0)
-
-COSTA Guglielmo 

@@ -15,14 +15,15 @@ function get_result(filepath::String)
         
         lenses_boxes = map(Base.splat(BoundingBox{Int}), eachcol(lenses_boxes))
         
-        wavelamp_order          = fitsfile["wavelamps_fits_cx"]["ORDER"].integer
-        λ0                      = fitsfile["wavelamps_fits_cx"]["L0"].float
-        wavelamps_fits_cx       = read(fitsfile["wavelamps_fits_cx"])
-        wavelamps_fits_cy       = read(fitsfile["wavelamps_fits_cy"])
-        wavelamps_fits_fwhm     = read(fitsfile["wavelamps_fits_fwhm"])
-        wavelamps_fits_amp      = read(fitsfile["wavelamps_fits_amp"])
-        wavelamps_centers_dists = read(fitsfile["wavelamps_centers_dists"])
-        wavelamps_λvals         = read(fitsfile["wavelamps_lvals"])
+        wavelamp_order            = fitsfile["wavelamps_fits_cx"]["ORDER"].integer
+        λ0                        = fitsfile["wavelamps_fits_cx"]["L0"].float
+        wavelamps_fits_cx         = read(fitsfile["wavelamps_fits_cx"])
+        wavelamps_fits_cy         = read(fitsfile["wavelamps_fits_cy"])
+        wavelamps_fits_fwhm       = read(fitsfile["wavelamps_fits_fwhm"])
+        wavelamps_fits_background = read(fitsfile["wavelamps_fits_background"])
+        wavelamps_fits_amp        = read(fitsfile["wavelamps_fits_amp"])
+        wavelamps_centers_dists   = read(fitsfile["wavelamps_centers_dists"])
+        wavelamps_λvals           = read(fitsfile["wavelamps_lvals"])
     
         specpos_order           = fitsfile["specpos_fits_cx"]["ORDER"].integer
         specpos_fits_cx         = read(fitsfile["specpos_fits_cx"])
@@ -32,7 +33,7 @@ function get_result(filepath::String)
            
         FitResult(lenses_boxes, λ0,
          wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
-         wavelamps_fits_fwhm, wavelamps_fits_amp,
+         wavelamps_fits_fwhm, wavelamps_fits_background, wavelamps_fits_amp,
          wavelamps_centers_dists, wavelamps_λvals,
          specpos_order, specpos_fits_cx, specpos_fits_cλ,
          specpos_fits_background, sepcpos_fits_amps,
@@ -44,7 +45,7 @@ function store_result(filepath, fitresult)
 
     (lenses_boxes, λ0,
         wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
-        wavelamps_fits_fwhm, wavelamps_fits_amp,
+        wavelamps_fits_fwhm, wavelamps_fits_background, wavelamps_fits_amp,
         wavelamps_centers_dists, wavelamps_λvals,
         specpos_order, specpos_fits_cx, specpos_fits_cλ,
         specpos_fits_background, sepcpos_fits_amps,
@@ -65,6 +66,7 @@ function store_result(filepath, fitresult)
         FitsHeader("EXTNAME" => "wavelamps_fits_cy", "ORDER" => wavelamp_order, "L0" => λ0),
         wavelamps_fits_cy)
     write(fitsfile, FitsHeader("EXTNAME" => "wavelamps_fits_fwhm"),     wavelamps_fits_fwhm)
+    write(fitsfile, FitsHeader("EXTNAME" => "wavelamps_fits_background"),wavelamps_fits_background)
     write(fitsfile, FitsHeader("EXTNAME" => "wavelamps_fits_amp"),      wavelamps_fits_amp)
     write(fitsfile, FitsHeader("EXTNAME" => "wavelamps_centers_dists"), wavelamps_centers_dists)
     write(fitsfile, FitsHeader("EXTNAME" => "wavelamps_lvals"),         wavelamps_λvals)
@@ -90,7 +92,7 @@ function get_summary(fitresult)
 
     (lenses_boxes, λ0,
      wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
-     wavelamps_fits_fwhm, wavelamps_fits_amp,
+     wavelamps_fits_fwhm, wavelamps_fits_background, wavelamps_fits_amp,
      wavelamps_centers_dists, wavelamps_λvals,
      specpos_order, specpos_fits_cx, specpos_fits_cλ,
      specpos_fits_background, sepcpos_fits_amps,
@@ -120,6 +122,12 @@ function get_summary(fitresult)
         medianMad_wavelamps_fits_fwhm[i,:] .=
             keep_numbers(wavelamps_fits_fwhm[i,goods]) |> x -> (median(x), mad(x))
     end
+    
+    # wavelamps_fits_background
+    medianMad_wavelamps_fits_background = fill(NaN64, 1, 2)
+    m, s = keep_numbers(wavelamps_fits_background[goods]) |> x -> (median(x), mad(x))
+    medianMad_wavelamps_fits_background[1,1] = m
+    medianMad_wavelamps_fits_background[1,2] = s
     
     # wavelamps_fits_amp
     medianMad_wavelamps_fits_amp = fill(NaN64, size(wavelamps_fits_amp,1), 2)
@@ -160,6 +168,12 @@ function get_summary(fitresult)
         quantiles_specpos_fits_cλ[:,a] .= quantile(keep_numbers(data), (0.0 : 0.05 : 1.0))
     end
 
+    # specpos_fits_background
+    medianMad_specpos_fits_background = fill(NaN64, 1, 2)
+    m, s = keep_numbers(specpos_fits_background[goods]) |> x -> (median(x), mad(x))
+    medianMad_specpos_fits_background[1,1] = m
+    medianMad_specpos_fits_background[1,2] = s
+
     # specpos_fits_amps
     medianMad_sepcpos_fits_amps = fill(NaN64, 40, 2)
     for i in 1:40
@@ -168,19 +182,14 @@ function get_summary(fitresult)
         medianMad_sepcpos_fits_amps[i,2] = s
     end
 
-    # specpos_fits_background
-    medianMad_specpos_fits_background = fill(NaN64, 1, 2)
-    m, s = keep_numbers(specpos_fits_background[goods]) |> x -> (median(x), mad(x))
-    medianMad_specpos_fits_background[1,1] = m
-    medianMad_specpos_fits_background[1,2] = s
-
 
     (; nbgoods, λ0, wavelamp_order,
        quantiles_wavelamps_fits_cx, quantiles_wavelamps_fits_cy,
-       medianMad_wavelamps_fits_fwhm, medianMad_wavelamps_fits_amp,
+       medianMad_wavelamps_fits_fwhm,
+       medianMad_wavelamps_fits_background, medianMad_wavelamps_fits_amp,
        medianMad_wavelamps_centers_dists, medianMad_wavelamps_λvals,
        quantiles_specpos_fits_cx, quantiles_specpos_fits_cλ,
-       medianMad_sepcpos_fits_amps, medianMad_specpos_fits_background)
+       medianMad_specpos_fits_background, medianMad_sepcpos_fits_amps)
 end
 
 function display_summary(fitresult, io=stdout)
@@ -248,6 +257,17 @@ function compare_results(r1, r2)
         println("!=")
         show(stdout, MIME"text/plain"(), r2.wavelamps_fits_fwhm[:,bad])
         println()
+    end
+    
+    if !equalOrNans(r1.wavelamps_fits_background[clm], r2.wavelamps_fits_background[clm])
+        bad = 0
+        for i in findall(clm)
+            if !equalOrNans(r1.wavelamps_fits_background[i], r2.wavelamps_fits_background[i])
+                bad = i
+                break
+            end
+        end
+        @warn "different wavelamps_fits_background, example lens $bad: $(r1.wavelamps_fits_background[bad]) != $(r2.wavelamps_fits_background[bad])"
     end
     
     if !equalOrNans(r1.wavelamps_fits_amps[:,clm], r2.wavelamps_fits_amps[:,clm])

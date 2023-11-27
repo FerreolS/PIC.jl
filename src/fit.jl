@@ -62,10 +62,11 @@ function fit_wavelamps_specpos(
         size(lenses_boxes[i]) == box_size || error("incorrect box size")
     end
     
-    wavelamps_fits_cx   = fill(NaN64, wavelamp_order + 1, nb_lenses)
-    wavelamps_fits_cy   = fill(NaN64, wavelamp_order + 1, nb_lenses)
-    wavelamps_fits_fwhm = fill(NaN64, nλ, nb_lenses)
-    wavelamps_fits_amp  = fill(NaN64, nλ, nb_lenses)
+    wavelamps_fits_cx         = fill(NaN64, wavelamp_order + 1, nb_lenses)
+    wavelamps_fits_cy         = fill(NaN64, wavelamp_order + 1, nb_lenses)
+    wavelamps_fits_fwhm       = fill(NaN64, nλ, nb_lenses)
+    wavelamps_fits_background = fill(NaN64, nb_lenses)
+    wavelamps_fits_amp        = fill(NaN64, nλ, nb_lenses)
     
     wavelamps_centers_dists = fill(NaN64, 2048, 2048)
     wavelamps_λvals         = fill(NaN64, 2048, 2048)
@@ -115,10 +116,11 @@ function fit_wavelamps_specpos(
             continue
         end
         
-        wavelamps_fits_fwhm[:,i] .= wavelamp_fit_params[:,1]
-        wavelamps_fits_cx[:,i]   .= wavelamp_fit_params[:,2]
-        wavelamps_fits_cy[:,i]   .= wavelamp_fit_params[:,3]
-        wavelamps_fits_amp[:,i]  .= wavelamp_lkl.last_amp
+        wavelamps_fits_fwhm[:,i]     .= wavelamp_fit_params[:,1]
+        wavelamps_fits_cx[:,i]       .= wavelamp_fit_params[:,2]
+        wavelamps_fits_cy[:,i]       .= wavelamp_fit_params[:,3]
+        wavelamps_fits_background[i]  = wavelamp_lkl.last_background.x
+        wavelamps_fits_amp[:,i]      .= wavelamp_lkl.last_amp
         
         (lens_centers_dists, lens_λvals) = compute_distance_map(
             box, λrange, λ0, wavelamps_fits_cx[:,i], wavelamps_fits_cy[:,i])
@@ -169,7 +171,7 @@ function fit_wavelamps_specpos(
     FitResult(
         lenses_boxes, λ0,
         wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
-        wavelamps_fits_fwhm, wavelamps_fits_amp,
+        wavelamps_fits_fwhm, wavelamps_fits_background, wavelamps_fits_amp,
         wavelamps_centers_dists, wavelamps_λvals,
         specpos_order, specpos_fits_cx, specpos_fits_cλ,
         specpos_fits_background, sepcpos_fits_amps,
@@ -217,6 +219,7 @@ struct FitResult
     wavelamps_fits_cx   ::Matrix{Float64}
     wavelamps_fits_cy   ::Matrix{Float64}
     wavelamps_fits_fwhm ::Matrix{Float64}
+    wavelamps_fits_background ::Vector{Float64}
     wavelamps_fits_amps ::Matrix{Float64}
 
     wavelamps_centers_dists ::Matrix{Float64}

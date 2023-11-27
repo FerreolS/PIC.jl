@@ -58,8 +58,7 @@ function (self::SpecPosLikelihood)(M::Matrix{Float64})::Float64
     
     @inbounds begin
         model_amped = (model .* self.last_amps') .+ self.last_background.x
-        residuals   = (self.data .- model_amped) .* self.weights
-        cost        = sum(abs2, residuals)
+        cost        = sum(self.weights .* (self.data .- model_amped).^2)
     end
     
     cost
