@@ -1,3 +1,33 @@
+"""
+    fit_wavelamps_specpos(arguments...; keywords...) -> Result
+
+For each lenslet, fit the parameters of the model for the data of Wave,Lamp and Spec,Pos.
+
+# Arguments
+- `lenses_positions ::AbstractMatrix{Float64}`: absolute position of the center of each lens on
+  the detector for both Wave,Lamp and Spec,Pos files. First axis contains the x and y position.
+- `wavelamps_λlasers ::AbstractVector{Float64}`: wavelength for each laser of the Wave,Lamp file.
+  In YJ mode 3 lasers are expected and in YJH 4 lasers are expected.
+- `wavelamps_data ::AbstractMatrix{T}`: Matrix containing the Wave,Lamp data.
+- `wavelamps_weights ::AbstractMatrix{T}`: Matrix containing the Wave,Lamp weights.
+- `wavelamps_fwhm_init ::AbstractVector{Float64}`: initial fwhm value for each Wave,Lamp laser.
+- `wavelamps_cx_init ::AbstractVector{Float64}`: initial coefficient for the polynome of x center
+  positions of the lasers.
+- `wavelamps_cy_init ::AbstractVector{Float64}`: same as `wavelamps_cx_init` for y position.
+- `specpos_data ::AbstractMatrix{T}`: Matrix containing the Spec,Pos data.
+- `specpos_weights ::AbstractMatrix{T}`: Matrix containing the Spec,Pos weights.
+
+The WaveLamp order (for polynomes of x and y positions) is defined to be the number of
+lasers minus one.
+
+# Keywords Arguments
+- `specpos_order ::Int = 2`: SpecPos order for the polynomes of x center position and fwhm.
+- `λ0 ::Float64 = mean(wavelamps_λlasers)`: reference wavelength for both Wave,Lamp and Spec,Pos.
+- `λrange ::AbstractRange{Float64} = IFS_λRANGE`: wavelength range used for Spec,Pos.
+- `init_box ::BoundingBox{Int} = INIT_BOX`: box surrounding each lens center.
+- `valid_lenses_map ::AbstractVector{Bool} = trues(size(lenses_positions,2)`:
+  if `valid_lenses_map[i]` is false, the fit of the lenslet `i` will be skipped.
+"""
 function fit_wavelamps_specpos(
     lenses_positions ::AbstractMatrix{Float64},
     
@@ -14,7 +44,7 @@ function fit_wavelamps_specpos(
     ; specpos_order ::Int = 2,
       λ0        ::Float64 = mean(wavelamps_λlasers),
       λrange    ::AbstractRange{Float64} = IFS_λRANGE,
-      box_frame ::NTuple{4,Int} = BOX_FRAME,
+      init_box ::BoundingBox{Int} = INIT_BOX,
       valid_lenses_map ::AbstractVector{Bool} = trues(size(lenses_positions,2))
       
 ) ::FitResult where {T<:Real}
@@ -47,45 +77,14 @@ function fit_wavelamps_specpos(
     nb_lenses == length(valid_lenses_map) || throw(DimensionMismatch(
         "`size(lenses_positions,2)` must be equal to length of `valid_lenses_map`"))
     
-    # map of the computed lenses (i.e the non-catch-error ones)
-    computed_lenses_map ::Vector{Bool} = falses(nb_lenses)
-
-    (dxmin, dxmax, dymin, dymax) = box_frame
-    box_size = (dxmax + dxmin + 1, dymin + dymax + 1)
-    box_size[1] ≥ 1 && box_size[2] ≥ 1 || throw(DimensionMismatch())
+    res = FitResult(nb_lenses, nλ, λ0, wavelamp_order, specpos_order, size(init_box,2))
     
-    lenses_boxes = Vector{BoundingBox{Int}}(undef, nb_lenses)
-    for (i, (x,y)) in enumerate(eachcol(lenses_positions))
-        box = BoundingBox(x - dxmin, x + dxmax, y - dymin, y + dymax)
-        # RoundNearestTiesUp to enforce box size (special case of `.5` floats)
-        lenses_boxes[i] = round(Int, box, RoundNearestTiesUp)
-        size(lenses_boxes[i]) == box_size || error("incorrect box size")
-    end
-    
-    wavelamps_fits_cx         = fill(NaN64, wavelamp_order + 1, nb_lenses)
-    wavelamps_fits_cy         = fill(NaN64, wavelamp_order + 1, nb_lenses)
-    wavelamps_fits_fwhm       = fill(NaN64, nλ, nb_lenses)
-    wavelamps_fits_background = fill(NaN64, nb_lenses)
-    wavelamps_fits_amp        = fill(NaN64, nλ, nb_lenses)
-    
-    wavelamps_centers_dists = fill(NaN64, 2048, 2048)
-    wavelamps_λvals         = fill(NaN64, 2048, 2048)
-    
-    specpos_fits_cx         = fill(NaN64, specpos_order + 1, nb_lenses)
-    specpos_fits_cλ         = fill(NaN64, specpos_order + 1, nb_lenses)
-    specpos_fits_background = fill(NaN64, nb_lenses)
-    sepcpos_fits_amps       = fill(NaN64, box_size[2], nb_lenses)
+    valid_boxes = compute_lenses_boxes!(res, init_box, lenses_positions)
     
     progress = Progress(nb_lenses; showspeed=true)
-    Threads.@threads for i in findall(valid_lenses_map)
+    Threads.@threads for i in findall(valid_lenses_map .& valid_boxes)
 
-        box = lenses_boxes[i]
-        
-        # skip box if out of data range
-        (1 ≤ box.xmin < box.xmax ≤ 2048) && (1 ≤ box.ymin < box.ymax ≤ 2048) || begin
-            next!(progress)
-            continue
-        end
+        box = res.lenses_boxes[i]
         
         # Fit WaveLamp
         
@@ -108,7 +107,7 @@ function fit_wavelamps_specpos(
         
         try vmlmb!(wavelamp_lkl, wavelamp_fit_params
                   ; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
-            # call one last time, to ensure that `last_amp` is produced from the final params
+            # call one last time, to ensure that `last_amps` is produced from the final params
             wavelamp_lkl(wavelamp_fit_params)
         catch e
             @debug "Error on lenslet $i" exception=(e,catch_backtrace())
@@ -116,17 +115,17 @@ function fit_wavelamps_specpos(
             continue
         end
         
-        wavelamps_fits_fwhm[:,i]     .= wavelamp_fit_params[:,1]
-        wavelamps_fits_cx[:,i]       .= wavelamp_fit_params[:,2]
-        wavelamps_fits_cy[:,i]       .= wavelamp_fit_params[:,3]
-        wavelamps_fits_background[i]  = wavelamp_lkl.last_background.x
-        wavelamps_fits_amp[:,i]      .= wavelamp_lkl.last_amp
+        res.wavelamps_fits_fwhm[:,i]     .= wavelamp_fit_params[:,1]
+        res.wavelamps_fits_cx[:,i]       .= wavelamp_fit_params[:,2]
+        res.wavelamps_fits_cy[:,i]       .= wavelamp_fit_params[:,3]
+        res.wavelamps_fits_background[i]  = wavelamp_lkl.last_background.x
+        res.wavelamps_fits_amps[:,i]     .= wavelamp_lkl.last_amps
         
         (lens_centers_dists, lens_λvals) = compute_distance_map(
-            box, λrange, λ0, wavelamps_fits_cx[:,i], wavelamps_fits_cy[:,i])
+            box, λrange, λ0, res.wavelamps_fits_cx[:,i], res.wavelamps_fits_cy[:,i])
             
-        wavelamps_centers_dists[box] .= lens_centers_dists
-        wavelamps_λvals[box]         .= lens_λvals
+        res.wavelamps_centers_dists[box] .= lens_centers_dists
+        res.wavelamps_λvals[box]         .= lens_λvals
 
         # Fit SpecPos
 
@@ -140,8 +139,8 @@ function fit_wavelamps_specpos(
         end
 
         specpos_fit_params = zeros(Float64, specpos_order + 1, 2)
-        specpos_fit_params[1,1] = wavelamps_fits_cx[1,i]
-        specpos_fit_params[1,2] = mean(wavelamps_fits_fwhm[:,i])
+        specpos_fit_params[1,1] = res.wavelamps_fits_cx[1,i]
+        specpos_fit_params[1,2] = mean(res.wavelamps_fits_fwhm[:,i])
 
         specpos_lkl = SpecPosLikelihood(
             λ0, specpos_order, box, lens_specpos_data, lens_specpos_weights, lens_λvals)
@@ -156,29 +155,67 @@ function fit_wavelamps_specpos(
             continue
         end
         
-        specpos_fits_cx[:,i]       .= specpos_fit_params[:,1]
-        specpos_fits_cλ[:,i]       .= specpos_fit_params[:,2]
-        specpos_fits_background[i]  = specpos_lkl.last_background.x
-        sepcpos_fits_amps[:,i]     .= specpos_lkl.last_amps
+        res.specpos_fits_cx[:,i]       .= specpos_fit_params[:,1]
+        res.specpos_fits_cλ[:,i]       .= specpos_fit_params[:,2]
+        res.specpos_fits_background[i]  = specpos_lkl.last_background.x
+        res.sepcpos_fits_amps[:,i]     .= specpos_lkl.last_amps
         
         # if we are here the computation was complete
-        computed_lenses_map[i] = true
+        res.computed_lenses_map[i] = true
         
         next!(progress)
     end
     finish!(progress)
    
-    FitResult(
-        lenses_boxes, λ0,
-        wavelamp_order, wavelamps_fits_cx, wavelamps_fits_cy,
-        wavelamps_fits_fwhm, wavelamps_fits_background, wavelamps_fits_amp,
-        wavelamps_centers_dists, wavelamps_λvals,
-        specpos_order, specpos_fits_cx, specpos_fits_cλ,
-        specpos_fits_background, sepcpos_fits_amps,
-        computed_lenses_map)
+    res ::FitResult
 end
 
+"""
+    compute_lenses_boxes!(::FitResult, init_box::BoundingBox{Int}, lenses_positions) -> BitVector
 
+Compute the box for each lenslet, from the given centers and using the given box shape.
+
+Stores them in the given `FitResult`.
+
+Returns a `BitVector` with `false` when the box is out of range of the data
+"""
+function compute_lenses_boxes!(
+    res::FitResult, init_box::BoundingBox{Int}, lenses_positions::AbstractMatrix{Float64}
+) ::BitVector
+
+    valid_boxes = trues(size(lenses_positions,2))
+
+    for (i, (x,y)) in enumerate(eachcol(lenses_positions))
+
+        # shifting the std box to the given lens center
+        boxR ::BoundingBox{Float64} = init_box + Point(x, y)
+        
+        # RoundNearestTiesUp to enforce box size (special case of `.5` floats)
+        boxI ::BoundingBox{Int}     = round(Int, boxR, RoundNearestTiesUp)
+        
+        # failure if size is different
+        size(boxI) == size(init_box) || error("incorrect box size")
+        
+        # register if box is out of data range
+        (1 ≤ boxI.xmin < boxI.xmax ≤ 2048) && (1 ≤ boxI.ymin < boxI.ymax ≤ 2048) || begin
+            valid_boxes[i] = false
+        end
+        
+        res.lenses_boxes[i] = boxI
+    end
+    
+    valid_boxes
+end
+
+"""
+    compute_distance_map(::BoundingBox{Int}, wavelengthrange::AbstractRange, λ0, \
+        cx::Vector{Float64}, cy::Vector{Float64}) -> NTuple{2,Matrix{Float64}}
+
+Compute the distance to the gaussian center and the wavelength for each pixel of the box.
+
+The given `cx` and `cy` are the coefficients that give the gaussian centers for each wavelength
+of the `wavelengthrange`.
+"""
 function compute_distance_map(
     box::BoundingBox{Int}, wavelengthrange::AbstractRange, λ0,
     cx::Vector{Float64}, cy::Vector{Float64}) ::NTuple{2,Matrix{Float64}}
@@ -210,26 +247,4 @@ function compute_distance_map(
     dist, pixλ
 end
 
-struct FitResult
 
-    lenses_boxes ::Vector{BoundingBox{Int}}
-    λ0       ::Float64
-
-    wavelamp_order      ::Int
-    wavelamps_fits_cx   ::Matrix{Float64}
-    wavelamps_fits_cy   ::Matrix{Float64}
-    wavelamps_fits_fwhm ::Matrix{Float64}
-    wavelamps_fits_background ::Vector{Float64}
-    wavelamps_fits_amps ::Matrix{Float64}
-
-    wavelamps_centers_dists ::Matrix{Float64}
-    wavelamps_λval          ::Matrix{Float64}
-
-    specpos_order           ::Int
-    specpos_fits_cx         ::Matrix{Float64}
-    specpos_fits_cλ         ::Matrix{Float64}
-    specpos_fits_background ::Vector{Float64}
-    sepcpos_fits_amps       ::Matrix{Float64}
-
-    computed_lenses_map ::Vector{Bool}
-end

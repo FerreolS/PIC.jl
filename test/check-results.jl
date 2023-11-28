@@ -293,8 +293,8 @@ function compare_results(r1, r2)
                      r1.wavelamps_centers_dists[:,bad], " != ",  r2.wavelamps_centers_dists[:,bad])
     end
     
-    if !equalOrNans(r1.wavelamps_λval, r2.wavelamps_λval)
-        @warn "different wavelamps_λval"
+    if !equalOrNans(r1.wavelamps_λvals, r2.wavelamps_λvals)
+        @warn "different wavelamps_λvals"
     end
     
     r1.specpos_order != r2.specpos_order &&

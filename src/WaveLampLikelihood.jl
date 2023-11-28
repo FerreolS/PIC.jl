@@ -1,9 +1,11 @@
 """
-    WaveLampLikelihood{Md,Mw}(λ0, λs, box, data, weights, last_background, last_amp)
+    WaveLampLikelihood{Md,Mw}(λ0, λs, box, data, weights, last_background, last_amps)
 
 Structure to store the constant data used in the fitting of the parameters for WaveLamp.
 
-Find information about fitted parameters at [`(self::WaveLampLikelihood)`](@ref).
+The model is a frame with `length(λs)` 2D gaussian spots on it, with a background.
+
+Find information about fitted parameters at [`compute_WaveLampLikelihood`](@ref).
 
 There is two parameters that are not fitted but computed from the others: background and amplitude.
 Since they are not parameters, they are not returned to the user. That is why they are stored in
@@ -17,7 +19,10 @@ these two values at [`compute_background_amplitudes_wavelamp`](@ref).
 - `data ::Md`: the observed data for the lens, size must be the same as `box`.
 - `weights ::Mw`: the weights for `data`, size must be the same as `data`.
 - `last_background ::Ref{Float64}`: stores the computed background from the last run.
-- `last_amp ::Vector{Float64}`: stores the computed amplitude for each laser, from the last run.
+- `last_amps ::Vector{Float64}`: stores the computed amplitude for each laser, from the last run.
+
+# Type parameters
+`Md` and `Mw` are just here to permit to give "views" instead of plain arrays.
 """
 struct WaveLampLikelihood{ Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float64} }
     λ0 ::Float64
@@ -27,21 +32,21 @@ struct WaveLampLikelihood{ Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float
     weights ::Mw
     
     last_background ::Ref{Float64}
-    last_amp ::Vector{Float64}
+    last_amps ::Vector{Float64}
     # Note that it was simpler to make Zygote work when these two values are stored here,
     # it seems to have less trouble to find them.
     
     function WaveLampLikelihood{Md,Mw}(
-        λ0, λs, box, data, weights, last_background, last_amp) where {Md,Mw}
+        λ0, λs, box, data, weights, last_background, last_amps) where {Md,Mw}
     
         size(box) == size(data) || throw(DimensionMismatch(
             "size of `box` must match the size of `data`"))
         size(data) == size(weights) || throw(DimensionMismatch(
             "size of `data` must match the size of `weights`"))
-        length(last_amp) == length(λs) || throw(DimensionMismatch(
-            "length of `last_amp` must be `length(λs)`"))
+        length(last_amps) == length(λs) || throw(DimensionMismatch(
+            "length of `last_amps` must be `length(λs)`"))
         
-        new{Md,Mw}(λ0, λs, box, data, weights, last_background, last_amp)
+        new{Md,Mw}(λ0, λs, box, data, weights, last_background, last_amps)
     end
 end
 
@@ -55,12 +60,17 @@ function WaveLampLikelihood(
 ) where { Md<:AbstractMatrix{Float64}, Mw<:AbstractMatrix{Float64} }
     
     last_background = Ref(NaN64)
-    last_amp = fill(NaN64, size(λs))
-    WaveLampLikelihood{Md,Mw}(λ0, λs, box, data, weights, last_background, last_amp)
+    last_amps = fill(NaN64, size(λs))
+    WaveLampLikelihood{Md,Mw}(λ0, λs, box, data, weights, last_background, last_amps)
+end
+
+"""Alias for [`compute_WaveLampLikelihood`](@ref)"""
+function (self::WaveLampLikelihood)(M::Matrix{Float64}) ::Float64
+    compute_WaveLampLikelihood(self, M)
 end
 
 """
-    (self::WaveLampLikelihood)(M::Matrix{Float64}) -> Float64
+    compute_WaveLampLikelihood(self::WaveLampLikelihood, M::Matrix{Float64}) -> Float64
 
 Compute a model from parameters `M`, and compare it to the `data`, and return the cost (WLS).
 
@@ -74,7 +84,7 @@ Compute a model from parameters `M`, and compare it to the `data`, and return th
 Background and amplitude are not fitted, find more information at
 [`compute_background_amplitudes_wavelamp`](@ref).
 """
-function (self::WaveLampLikelihood)(M::Matrix{Float64}) ::Float64
+function compute_WaveLampLikelihood(self::WaveLampLikelihood, M::Matrix{Float64}) ::Float64
 
     fwhms = M[:,1]
     cx    = M[:,2]
@@ -104,13 +114,13 @@ function (self::WaveLampLikelihood)(M::Matrix{Float64}) ::Float64
         (background, amps) = compute_background_amplitudes_wavelamp(
             list_spots, self.data, self.weights)
         self.last_background.x = background
-        self.last_amp .= amps
-        any(isnan, self.last_amp) && error("NaN amplitude: \"$(self.last_amp)\"")
+        self.last_amps .= amps
+        any(isnan, self.last_amps) && error("NaN amplitude: \"$(self.last_amps)\"")
     end
 
     @inbounds begin
         list_spots_amped = map(1:nλ) do i
-                               list_spots[i] .* self.last_amp[i]
+                               list_spots[i] .* self.last_amps[i]
                            end
 
         model = reduce(.+, list_spots_amped) .+ self.last_background.x
@@ -127,9 +137,9 @@ end
 From a vector of models, a data matrix and a weights matrix, compute the "best" background and
 amplitudes.
 
-These two values are not fitted because they can be computed from the other parameters. For a set
-of parameters, we can find a background and an amplitude such that WLS derivative is zero for the
-amplitude and the background.
+These two parameters are not fitted because they can be computed from the other parameters. For a
+set of parameters, we can find a background and an amplitudes such that WLS derivative is zero for
+the amplitudes and the background.
 
 Proof:
 - Recall that the WLS is the sum of `(data - model)² * weights` (with pixel-wise operations).
@@ -154,22 +164,26 @@ function compute_background_amplitudes_wavelamp(
     weights ::AbstractMatrix{Float64}
 ) ::Tuple{Float64,Vector{Float64}}
     
-    M = [ ones(Float64, size(data)), models... ]
-    length_M = length(M)
-
-    A = @MMatrix zeros(Float64, length_M, length_M)
-    b = @MVector zeros(Float64, length_M)
+    nbmodels = length(models)
     
-    Mi_weights = Matrix{Float64}(undef, size(data))
+    A = @MMatrix zeros(Float64, nbmodels+1, nbmodels+1)
+    b = @MVector zeros(Float64, nbmodels+1)
     
-    @inbounds for i in 1:length_M
-        Mi_weights .= M[i] .* weights
-        for j in 1:i
-            A[i,j] = A[j,i] = sum(Mi_weights .* M[j])
+    @inbounds begin
+    
+        M = [ ones(Float64, size(data)), models... ]
+        M_weights = map(M) do Mi; Mi .* weights end
+        
+        for i in 1:(nbmodels+1)
+            for j in 1:i
+                A[i,j] = A[j,i] = sum(M_weights[i] .* M[j])
+            end
         end
-        b[i] = sum(Mi_weights .* data)
+        
+        b .= [ sum(Mwi .* data) for Mwi in M_weights ]
+        
+        res = inv(A) * b
+        
+        return (background, amps) = res[1], res[2:end]
     end
-    
-    res = inv(A) * b
-    (background, amps) = res[1], res[2:end]
 end
