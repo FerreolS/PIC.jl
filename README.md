@@ -116,12 +116,11 @@ every pixel of the same line.
 As for WaveLamp, the amplitudes and the background are not part of the guessed parameters but
 computed from the others, in a very similar manner. We use WLS cost again.
 
-
 Detail of a scecpos lenslet fit:
 
 !["detail of a specpos lenslet fit"](doc/detail_specpos_fit.png)
 
-Note: only the gaussian centers and fwhms from the central column of the box are displayed on this
-graph.
+Note: only the gaussian centers and fwhms from the central pixels of the box are displayed on this
+graph. See previous explanations.
 
 
