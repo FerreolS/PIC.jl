@@ -5,7 +5,6 @@
 
 module PIC
 
-
 export
     DispModel,
     LaserModel,

@@ -3,11 +3,14 @@
 # This software is released under the MIT License.
 # https://opensource.org/licenses/MIT
 
-using Revise, PIC
+using Revise
+using PIC
+using StatsBase
+using DelimitedFiles
+using EasyFITS
+
 ENV["JULIA_DEBUG"] = Main.PIC
 
-using Plots, StatsBase,Statistics, DelimitedFiles
-using FITSIO
 # wavelengths
 λ1 = 987.72e-9;# laser 1
 λ2 = 1123.71e-9;# laser 2
@@ -18,12 +21,12 @@ nλ = length(λlaser);
 λ0 = mean(λlaser);# reference
 wavelengthrange = LinRange(850e-9,1600e-9,10000); # coarse wavelength range of the instrument
 
-coeffx = readdlm("/Users/ferreol/Data/SPHERE/IFS/HR_4796-HD_95086/coef_pol_x.txt", header = false)
+coeffx = readdlm("test/HR_4796-HD_95086/coef_pol_x.txt", header = false)
 cx0 = coeffx[:,1] .+ 1025;
 mcx1 = median(coeffx[:,2])*λ0*1e6;
 mcx2 = median(coeffx[:,3])*(λ0*1e6)^2;
 
-coeffy = readdlm("/Users/ferreol/Data/SPHERE/IFS/HR_4796-HD_95086/coef_pol_y.txt", header = false)
+coeffy = readdlm("test/HR_4796-HD_95086/coef_pol_y.txt", header = false)
 cy0 = coeffy[:,1].+ 1025;
 mcy1 = median(coeffy[:,2])*λ0*1e6;
 mcy2 = median(coeffy[:,3])*(λ0*1e6)^2;
@@ -34,11 +37,9 @@ cxinit = [mcx1;mcx2];
 cyinit = [mcy1;mcy2];
 lensletnumber= length(cx0)
 
-
-
-lampData =  read(FITS("/Users/ferreol/Data/SPHERE/IFS/HR_4796-HD_95086/IFS_calib_spec_corrected.fits")[1])
-laserData =  read(FITS("/Users/ferreol/Data/SPHERE/IFS/HR_4796-HD_95086/IFS_calib_wave_corrected.fits")[1])
-badpix = Float64.(read(FITS("/Users/ferreol/Data/SPHERE/IFS/HR_4796-HD_95086/IFS_BP_corrected.fits")[1]))
+lampData =  readfits("test/HR_4796-HD_95086/IFS_calib_spec_corrected.fits")
+laserData =  readfits(Array{eltype(lampData)}, "test/HR_4796-HD_95086/IFS_calib_wave_corrected.fits")
+badpix = readfits(Array{eltype(lampData)}, "test/HR_4796-HD_95086/IFS_BP_corrected.fits")
 
 fwhminit = [2.3, 2.4 , 2.7];
 
