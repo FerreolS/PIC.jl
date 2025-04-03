@@ -29,7 +29,7 @@ function ProfileModel(λ0,C::Matrix{Float64})
 end
 
 
-function (self::ProfileModel)(λ::Float64)
+#=function (self::ProfileModel)(λ::Float64)
     w = self.cλ[1];
     y = self.cy[1];
     @inbounds for o in 1:self.order
@@ -38,7 +38,7 @@ function (self::ProfileModel)(λ::Float64)
         y += self.cy[o + 1]  * λpo;
     end
     return (w,y)
-end
+end=#
 
 function (self::ProfileModel)(λ::Float64,x)
     # @inbounds for o in 1:self.order

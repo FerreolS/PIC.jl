@@ -73,7 +73,7 @@ function UpdateDispModel(self::DispModel, C::Array{Float64,2})
     return self
 end
 
-"""
+#="""
     LaserModel(nλ::Int,λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::Array{Float64,1})
 
 Model of the laser illumination.
@@ -88,9 +88,9 @@ mutable struct LaserModel
     λlaser::Array{Float64,1}# wavelength of the laser
     amplitude::Array{Float64,1}
     fwhm::Array{Float64,1}
-end
+end=#
 
-"""
+#="""
     LaserModel(λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::Array{Float64,1})
 
 Constructor of the model of the laser illumination.
@@ -104,9 +104,9 @@ function LaserModel(λlaser::Array{Float64,1},amplitude::Array{Float64,1},fwhm::
     @assert length(amplitude)==nλ "amplitude vector does not have the right size"
     @assert length(fwhm)==nλ "fwhm vector does not have the right size"
     LaserModel(nλ ,λlaser,amplitude,fwhm);
-end
+end=#
 
-"""
+#="""
     UpdateLaserModel(self::LaserModel,A::Array{Float64,1},fwhm::Array{Float64,1})
 
 Update the parameters of the laser model
@@ -121,4 +121,4 @@ function UpdateLaserModel(self::LaserModel,A::Array{Float64,1},fwhm::Array{Float
     @assert length(fwhm)==self.nλ "fwhm vector does not have the right size"
     self.amplitude = A;
     self.fwhm = fwhm;
-end
+end=#

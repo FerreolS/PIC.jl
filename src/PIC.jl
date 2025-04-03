@@ -10,10 +10,7 @@ export
     LaserModel,
     LensletModel,
     LikelihoodIFS,
-    LensletLaserImage,
     UpdateDispModel,
-    UpdateLaserModel,
-    fitSpectralLaw,
     fitSpectralLawAndProfile,
     importe, exporte, compar
 
@@ -25,10 +22,7 @@ import .SphereIFSCalib:
     LaserModel,
     LensletModel,
     LikelihoodIFS,
-    LensletLaserImage,
     UpdateDispModel,
-    UpdateLaserModel,
-    fitSpectralLaw,
     fitSpectralLawAndProfile
 
 end # module

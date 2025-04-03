@@ -73,7 +73,7 @@ end
 
 
 
-"""
+#="""
     GaussianModel(A,fwhm,x,y)
 
 Compute the value  at position (x,y) of a 2D centered Gaussian
@@ -84,9 +84,9 @@ Compute the value  at position (x,y) of a 2D centered Gaussian
 function GaussianModel(A::Float64, fwhm::Float64, x::Float64, y::Float64)
     local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
     return A * exp(-(x^2 + y^2) / (2 * (fwhm * fwhm2sigma )^2));
-end
+end=#
 
-"""
+#="""
     GaussianModel(A::Float64, fwhm::Float64, x::AbstractArray)
 
 Compute the value at position x 1D centered Gaussian
@@ -97,9 +97,9 @@ Compute the value at position x 1D centered Gaussian
 function GaussianModel(A::Float64, fwhm::Float64, x::AbstractArray)
     local fwhm2sigma = 1 / (2 * sqrt(2 * log(2.)))::Float64
     return A .* exp.(.-(x.^2) ./ (2 * (fwhm * fwhm2sigma )^2));
-end
+end=#
 
-"""
+#="""
     GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
 
 Compute the value at position sqrt(r) 1D centered Gaussian
@@ -112,9 +112,9 @@ Equivalent to `GaussianModel(A, fwhm, sqrt.(x))`
 function GaussianModel2(A::Float64, fwhm::Float64, x::AbstractArray)
     local fwhm2sigma = Float64(1) / (2 * sqrt(2 * log(2.)))
     return A .* exp.(-x ./ (2 * (fwhm * fwhm2sigma )^2));
-end
+end=#
 
-"""
+#="""
     GaussianModel2(A::Float64, fwhm::Float64, x::Real)
 
 Compute the value at position sqrt(x) 1D centered Gaussian
@@ -127,9 +127,9 @@ Equivalent to `GaussianModel(A, fwhm, sqrt(x))`
 function GaussianModel2(A::T, fwhm::T, x::T) where (T<:Real)
     local fwhm2sigma = T(1 / (2 * sqrt(2 * log(2.))))
     return A * exp(-x / (2 * (fwhm * fwhm2sigma )^2));
-end
+end=#
 
-"""
+#="""
     GaussianModel2(fwhm::Float64, x::AbstractArray)
 
 Compute the value at position sqrt(r) 1D centered Gaussian
@@ -141,7 +141,7 @@ Equivalent to `GaussianModel(1.,fwhm, sqrt.(x))`
 function GaussianModel2(fwhm::T, x::AbstractArray{T})where (T<:Real)
     local fwhm2sigma = T(1 / (2 * sqrt(2 * log(2.))))
     return exp.(-x ./ (2 * (fwhm * fwhm2sigma )^2));
-end
+end=#
 
 """
     GaussianModel2(fwhm::Float64, x::AbstractArray)
@@ -159,7 +159,7 @@ end
 
 GaussianModel2(tpl::Tuple{T, T}) where (T<:Real) = GaussianModel2(tpl...)
 
-"""
+#="""
     GaussianModel2!(ret::AbstractArray{T},fwhm::Float64, x::AbstractArray)
 
 Compute inplace the value at position sqrt(r) 1D centered Gaussian
@@ -172,9 +172,9 @@ Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
 function GaussianModel2!(ret::AbstractArray{T},fwhm, x::AbstractArray{T}) where (T<:Real)
         @. ret = exp(-x / T(2 * (fwhm * 1 / (2 * sqrt(2 * log(2.))) )^2));
         nothing
-end
+end=#
 
-"""
+#="""
     GaussianSpotsCost(data::Array{Float64,2}, weight::Array{Float64,2}, lmodel::LensletModel,  laser::LaserModel,A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
 
 Compute a weighted quadratic cost of a lenslet model :
@@ -197,10 +197,10 @@ function GaussianSpotsCost(data::Array{Float64,2}, weight::Array{Float64,2}, lmo
         s += weight[I] * ( data[I] - spotsmodel)^2;
     end
     return s;
-end
+end=#
 
 
-"""
+#="""
     GaussianSpotsModel(lmodel::LensletModel,laser::LaserModel, A::Array{Float64,1}, fwhm::Array{Float64,1}, C::Array{Float64,2})
 
 Build the model of a lenslet
@@ -223,10 +223,10 @@ function GaussianSpotsModel(lmodel::LensletModel,laser::LaserModel, A::Array{Flo
         end
     end
     model =  Zygote.copy(t);
-end
+end=#
 
 
-"""
+#="""
     LensletLaserImage(lmodel::LensletModel,laser::LaserModel)
 
 Build the image of a lenslet under laser illumination
@@ -243,9 +243,9 @@ function LensletLaserImage(lmodel::LensletModel,laser::LaserModel)
         spotsmodel = spotsmodel .+ GaussianModel2.(laser.amplitude[index], laser.fwhm[index], r)
     end
     return spotsmodel;
-end
+end=#
 
-"""
+#="""
     LensletLaserImage!(spotsmodel::Array{Float64,3},lmodel::LensletModel,laser::LaserModel)
 
 Build inplace the image of a lenslet under laser illumination
@@ -262,7 +262,7 @@ function LensletLaserImage!(spotsmodel::Array{Float64,3},lmodel::LensletModel,la
         spotsmodel[:,:,index]= GaussianModel2( laser.fwhm[index], r)
     end
     nothing
-end
+end=#
 
 
 """
@@ -427,7 +427,7 @@ function updateAmplitude(N::Int,spots::AbstractArray{T},data::AbstractArray{T},w
     return inv(A)*b
 end
 
-"""
+#="""
         (lenslettab, atab, fwhmtab,ctab) = fitSpectralLaw(laserData,weights,λlaser,lensletsize,cx0,cy0,cinit,fwhminit;validlenslets=true);
 
     fits the spectral of all lenslet identified as valid in the `valid` vector.
@@ -496,7 +496,7 @@ function fitSpectralLaw(laserdata::Matrix{T},
     end
     ProgressMeter.finish!(p);
     return (lenslettab, atab, fwhmtab,ctab);
-end
+end=#
 
 function fitSpectralLawAndProfile(laserdata::Matrix{T},
     laserweights::Matrix{T},
