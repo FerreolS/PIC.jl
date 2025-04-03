@@ -5,6 +5,7 @@ using TwoDimensional, ProgressMeter, OptimPackNextGen
 include("DispModel.jl")
 include("ProfileModel.jl")
 
+using Random
 
 """
     LensletModel(bbox::BoundingBox{Int},dmodel::DispModel)
@@ -510,7 +511,8 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     fwhminit::Array{Float64,1},
     wavelengthrange::AbstractArray{Float64,1};
     validlenslets::AbstractArray{Bool,1}=[true],
-    profileorder::Int = 2
+    profileorder::Int = 2,
+    smalltest ::Bool = false
     ) where T<:Real
 
     numberoflenslet = size(position)[1]
@@ -532,7 +534,9 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     laserdist = Array{Float64,2}(undef,2048,2048);
     λMap =  Array{Float64,2}(undef,2048,2048);
     p = Progress(numberoflenslet; showspeed=true)
-    Threads.@threads for i in findall(validlenslets)
+    indices = findall(validlenslets)
+    indices = smalltest ? rand(MersenneTwister(1234), indices, 300) : indices
+    Threads.@threads for i in indices
         lensletbox = round(Int, BoundingBox(position[i,1]-dxmin, position[i,1]+dxmax, position[i,2]-dymin, position[i,2]+dymax));
 
         lenslettab[i] = LensletModel(λ0,nλ-1, profileorder,lensletbox);
