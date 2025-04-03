@@ -590,7 +590,6 @@ function fitSpectralLawAndProfile(laserdata::Matrix{T},
     return (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap);
 end
 
-
 function distanceMap(wavelengthrange::AbstractArray{Float64,1},
                     lenslet::LensletModel
                     )

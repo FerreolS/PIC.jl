@@ -14,9 +14,11 @@ export
     UpdateDispModel,
     UpdateLaserModel,
     fitSpectralLaw,
-    fitSpectralLawAndProfile
+    fitSpectralLawAndProfile,
+    importe, exporte, compar
 
 include("SphereIFSCalib.jl")
+include("io.jl")
 
 import .SphereIFSCalib:
     DispModel,
