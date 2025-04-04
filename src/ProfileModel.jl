@@ -26,46 +26,45 @@ function ProfileModel(λ0::Float64, C::Matrix{Float64})
     ProfileModel(λ0,order,cλ,cy)
 end
 
-function (self::ProfileModel)(λ::Float64, x)
-    λpo = (( λ - self.λ0)/self.λ0 ).^(1:self.order)
-    w = self.cλ[1] +sum(self.cλ[2:end]  .* λpo)
-    y = self.cy[1] +sum(self.cy[2:end] .* λpo)
-    
-    return (w,(y - x)^2)
+function (self::ProfileModel)(λ::Float64, x) ::NTuple{2,Float64}
+    λpo = ((λ-self.λ0)/self.λ0).^(1:self.order)
+    w = self.cλ[1] + sum(self.cλ[2:end]  .* λpo)
+    y = self.cy[1] + sum(self.cy[2:end] .* λpo)
+    return (w, (y - x)^2)
 end
 
-
-function UpdateProfileModel(self::ProfileModel, C::Matrix{Float64})
+function UpdateProfileModel(self::ProfileModel, C::Matrix{Float64}) ::ProfileModel
     size(C) == (2,self.order+1) || error("coefficients size does not match the order")
-    self.cλ = C[1,:];
-    self.cy = C[2,:];
+    self.cλ = C[1,:]
+    self.cy = C[2,:]
     return self
 end
 
-
-struct LikelihoodProfile{T<:AbstractFloat,A<:AbstractMatrix{T},B<:AbstractMatrix{T}}
+struct LikelihoodProfile{T<:Real,A<:AbstractMatrix{T},B<:AbstractMatrix{T}}
     model::ProfileModel
     data::A
     weight::B
     λMap::Matrix{T}
-    bbox::BoundingBox{Int64}
-    amplitude::Vector{T}#MVector{N, Float64}
-    # Inner constructor provided to force using outer constructors.
-    function LikelihoodProfile(model::ProfileModel,
-                                    data::A,
-                                    weight::B,
-                                    λMap::Matrix{T},
-                                    bbox::BoundingBox{Int64}) where {T<:AbstractFloat,A<:AbstractMatrix{T},B<:AbstractMatrix{T}}
-        @assert size(data) == size(weight)
-        @assert size(data) == size(λMap)
-        @assert size(data) == size(bbox)
-        amplitude =  zeros(T,size(data,2)+1)
-        return new{T,A,B}(model,data, weight,λMap, bbox,amplitude)
+    bbox::BoundingBox{Int}
+    amplitude::Vector{T}
+    function LikelihoodProfile{T,A,B}(model,data,weight,λMap,bbox,amplitude) where {T,A,B}
+        size(data) == size(weight) || throw(ArgumentError)
+        size(data) == size(λMap)   || throw(ArgumentError)
+        size(data) == size(bbox)   || throw(ArgumentError)
+        size(data,2)+1 == length(amplitude) || throw(ArgumentError)
+        new{T,A,B}(model, data, weight, λMap, bbox, amplitude)
     end
 end
 
-function  (self::LikelihoodProfile)(coefs::Matrix{T})::T where (T<:AbstractFloat)
-    UpdateProfileModel(self.model,coefs)
+function LikelihoodProfile(
+    model::ProfileModel, data::A, weight::B, λMap::Matrix{T}, bbox::BoundingBox{Int}
+) where {T<:Real,A<:AbstractMatrix{T},B<:AbstractMatrix{T}}
+    amplitude = zeros(T, size(data,2)+1)
+    LikelihoodProfile{T,A,B}(model, data, weight, λMap, bbox, amplitude)
+end
+
+function (self::LikelihoodProfile)(coefs::Matrix{T}) ::T where {T<:Real}
+    UpdateProfileModel(self.model, coefs)
     p = @. GaussianModel2(self.model(self.λMap,($(axes(self.bbox,1)))))
     profile = p ./ sum(p,dims=1)
     amp = Zygote.@ignore  updateAmplitudeAndBackground(profile,self.data,self.weight)

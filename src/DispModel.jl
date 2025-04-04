@@ -12,7 +12,6 @@ mutable struct DispModel
     order::Int64  # order of the polynomial
     cx::Vector{Float64} # coefficients of the polynomial along the x axis
     cy::Vector{Float64} # coefficients of the polynomial along the y axis
-
     function DispModel(λ0, order, cx, cy)
         order ≥ 0               || throw(ArgumentError)
         length(cx) == (order+1) || throw(ArgumentError)
@@ -42,11 +41,10 @@ D = DispModel(λ0, order, cx, cy);
 ```
 """
 function (self::DispModel)(λ::Float64)
-    λpo = (( λ - self.λ0)/self.λ0 ).^(1:self.order)
-    x = self.cx[1] +sum(self.cx[2:end] .* λpo)
-    y = self.cy[1] +sum(self.cy[2:end] .* λpo)
-    
-    return (x, y)
+    λpo = ((λ - self.λ0)/self.λ0).^(1:self.order)
+    x = self.cx[1] + sum(self.cx[2:end] .* λpo)
+    y = self.cy[1] + sum(self.cy[2:end] .* λpo)
+    (x, y)
 end
 
 """
@@ -57,9 +55,9 @@ Update the coefficients  of the DispModel .
 * `C` : array containing the polynomial coefficients.
 """
 function UpdateDispModel(self::DispModel, C::Array{Float64,2})
-    @assert size(C)==(2,self.order+1) "coefficients array does not have the right size"
-    self.cx = C[1,:];
-    self.cy = C[2,:];
+    size(C) == (2,self.order+1) || error("coefficients array does not have the right size")
+    self.cx = C[1,:]
+    self.cy = C[2,:]
     return self
 end
 
