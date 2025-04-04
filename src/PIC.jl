@@ -5,24 +5,16 @@
 
 module PIC
 
-export
-    DispModel,
-    LaserModel,
-    LensletModel,
-    LikelihoodIFS,
-    UpdateDispModel,
-    fitSpectralLawAndProfile,
-    importe, exporte, compar
+using Zygote, StaticArrays,StatsBase, LinearAlgebra, EasyFITS, TwoDimensional, ProgressMeter, 
+      OptimPackNextGen, Random
 
-include("SphereIFSCalib.jl")
+export ProfileModel, DispModel, LensletModel, LikelihoodIFS, UpdateDispModel,
+       fitSpectralLawAndProfile, exporte, importe, compar
+
+include("DispModel.jl")
+include("ProfileModel.jl")
+include("LensletModel.jl")
+include("calib.jl")
 include("io.jl")
-
-import .SphereIFSCalib:
-    DispModel,
-    LaserModel,
-    LensletModel,
-    LikelihoodIFS,
-    UpdateDispModel,
-    fitSpectralLawAndProfile
 
 end # module

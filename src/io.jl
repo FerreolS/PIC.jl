@@ -1,6 +1,3 @@
-using EasyFITS, TwoDimensional
-import .SphereIFSCalib: DispModel, LaserModel, LensletModel, ProfileModel
-
 function exporte(filepath, lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap)
     nlens = length(lenslettab)
     

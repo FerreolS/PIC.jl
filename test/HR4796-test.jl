@@ -53,38 +53,5 @@ lensletsize = (dxmin, dxmax,dymin,dymax);
 
 valid = ((cx0 .- dxmin).>0) .&  ((cx0 .+ dxmax).<2048) .&  ((cy0 .- dymin).>0) .&  ((cy0 .+ dymax).<2048);
 
-
-#(lenslettab, atab, fwhmtab,ctab) = fitSpectralLaw(laserData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit;validlenslets=valid[1:100]);
 (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap)  = fitSpectralLawAndProfile(laserData,badpix,lampData,badpix,λlaser,lensletsize,position,cxinit,
     cyinit,fwhminit,wavelengthrange;validlenslets=valid, smalltest=true);
-
-#(lenslettab, distweight, λMap) = fitSpectralLaw(laserData,badpix,λlaser,lensletsize,position,cxinit,cyinit,fwhminit,wavelengthrange;validlenslets=valid);
-
-#=
-lenslettab = Array{Union{LensletModel,Missing}}(missing,lensletnumber);
-atab = Array{Union{Float64,Missing}}(missing,3,lensletnumber);
-fwhmtab = Array{Union{Float64,Missing}}(missing,3,lensletnumber);
-ctab = Array{Union{Float64,Missing}}(missing,2,3,lensletnumber);
-p = Progress(lensletnumber; showspeed=true)
-Threads.@threads for i in findall(valid)
-    bbox = round(Int, BoundingBox(cx0[i,1]-dxmin, cx0[i,1]+dxmax, cy0[i,1]-dymin, cy0[i,1]+dymax));
-
-    lenslettab[i] = LensletModel(λ0,nλ-1, bbox);
-    Cinit= [ [cx0[i,1] mcx1 mcx2]; [cy0[i,1] mcy1 mcy2] ];
-    xinit = vcat([fwhminit[:],Cinit[:]]...);
-    laserDataView = view(laserData, bbox);
-    badpixview = view(badpix,bbox)
-    lkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,badpixview);
-    cost(x::Vector{Float64}) = lkl(x)
-    try
-        xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500);
-        (fwhmopt,copt) = (xopt[1:(nλ)],reshape(xopt[(nλ+1):(3*nλ)],2,:));
-        atab[:,i] = lkl.amplitude;
-        fwhmtab[:,i] = fwhmopt
-        ctab[:,:,i] = copt
-    catch
-        continue
-    end
-    next!(p)
-end
-ProgressMeter.finish!(p)=#
