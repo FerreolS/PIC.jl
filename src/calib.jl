@@ -115,6 +115,7 @@ function fitSpectralLawAndProfile(
     lampdata::Matrix{T},
     lampweights::Matrix{T},
     λlaser::Vector{Float64},
+    λ0::Float64,
     lensletsize::NTuple{4,Int},
     position::Matrix{Float64},
     cxinit::Vector{Float64},
@@ -127,15 +128,16 @@ function fitSpectralLawAndProfile(
 ) where {T<:Real}
 
     numberoflenslet = size(position,1)
-
     nλ = length(λlaser)
-    λ0 = mean(λlaser)# reference
-    @assert length(fwhminit) == nλ
+
+    length(fwhminit) == nλ || throw(ArgumentError)
 
     (dxmin, dxmax,dymin,dymax) = lensletsize
+    nrows_lampAmplitude = (1 + dymin + dymax) + 1 # nrows(lenslet box) + 1 additional cell
+    
     lenslettab = Vector{LensletModel}(undef,numberoflenslet);
     laserAmplitude = Matrix{Float64}(undef,nλ,numberoflenslet);
-    lampAmplitude = Matrix{Float64}(undef,41,numberoflenslet);
+    lampAmplitude = Matrix{Float64}(undef,nrows_lampAmplitude,numberoflenslet);
     laserfwhm = Matrix{Float64}(undef,nλ,numberoflenslet);
     laserdist = Matrix{Float64}(undef,2048,2048);
     λMap =  Matrix{Float64}(undef,2048,2048);

@@ -17,7 +17,6 @@ ENV["JULIA_DEBUG"] = Main.PIC
 λ3 = 1309.37e-9;# laser 3
 λ4 = 1545.10e-9;  # laser 4
 λlaser = [λ1,λ2,λ3];
-nλ = length(λlaser);
 λ0 = mean(λlaser);# reference
 wavelengthrange = LinRange(850e-9,1600e-9,10000); # coarse wavelength range of the instrument
 
@@ -31,7 +30,6 @@ cy0 = coeffy[:,1].+ 1025;
 mcy1 = median(coeffy[:,2])*λ0*1e6;
 mcy2 = median(coeffy[:,3])*(λ0*1e6)^2;
 
-
 position = hcat(cx0, cy0)
 cxinit = [mcx1;mcx2];
 cyinit = [mcy1;mcy2];
@@ -43,9 +41,7 @@ badpix = readfits(Array{eltype(lampData)}, "test/HR_4796-HD_95086/IFS_BP_correct
 
 fwhminit = [2.3, 2.4 , 2.7];
 
-#largeur = 4;
-#hauteur = 44;
-dxmin = 2;
+dxmin = 2; # [distance in pixels, from the reference pixel of the lenslet box]
 dxmax = 2;
 dymin = 21;
 dymax = 18;
@@ -53,5 +49,5 @@ lensletsize = (dxmin, dxmax,dymin,dymax);
 
 valid = ((cx0 .- dxmin).>0) .&  ((cx0 .+ dxmax).<2048) .&  ((cy0 .- dymin).>0) .&  ((cy0 .+ dymax).<2048);
 
-(lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap)  = fitSpectralLawAndProfile(laserData,badpix,lampData,badpix,λlaser,lensletsize,position,cxinit,
+(lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap)  = fitSpectralLawAndProfile(laserData,badpix,lampData,badpix,λlaser,λ0,lensletsize,position,cxinit,
     cyinit,fwhminit,wavelengthrange;validlenslets=valid, smalltest=true);
