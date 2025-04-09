@@ -147,7 +147,8 @@ function fitSpectralLawAndProfile(
     Threads.@threads for i in indices
         lensletbox = round(Int, BoundingBox(
             position[i,1]-dxmin, position[i,1]+dxmax,
-            position[i,2]-dymin, position[i,2]+dymax))
+            position[i,2]-dymin, position[i,2]+dymax),
+            RoundNearestTiesUp)
 
         lenslettab[i] = LensletModel(lensletbox, λ0, nλ-1, profileorder);
 
@@ -208,8 +209,8 @@ function distanceMap(wavelengthrange::AbstractArray{Float64,1},
                     lenslet::LensletModel
                     )
     bbox = lenslet.bbox;
-    dist = ones(Float64,size(round(bbox))).*1000;
-    pixλ = ones(Float64,size(round(bbox)));
+    dist = ones(Float64,size(bbox)).*1000;
+    pixλ = ones(Float64,size(bbox));
     (ax,ay) = axes(bbox)
     previous_index = 0;
     for I in CartesianIndices(dist)
