@@ -40,14 +40,14 @@ function UpdateProfileModel(self::ProfileModel, C::Matrix{Float64}) ::ProfileMod
     return self
 end
 
-struct LikelihoodProfile{T<:Real,A<:AbstractMatrix{T},B<:AbstractMatrix{T}}
+struct Profile_LKL{T<:Real,A<:AbstractMatrix{T},B<:AbstractMatrix{T}}
     model::ProfileModel
     data::A
     weight::B
     λMap::Matrix{T}
     bbox::BoundingBox{Int}
     amplitude::Vector{T}
-    function LikelihoodProfile{T,A,B}(model,data,weight,λMap,bbox,amplitude) where {T,A,B}
+    function Profile_LKL{T,A,B}(model,data,weight,λMap,bbox,amplitude) where {T,A,B}
         size(data) == size(weight) || throw(ArgumentError)
         size(data) == size(λMap)   || throw(ArgumentError)
         size(data) == size(bbox)   || throw(ArgumentError)
@@ -56,14 +56,14 @@ struct LikelihoodProfile{T<:Real,A<:AbstractMatrix{T},B<:AbstractMatrix{T}}
     end
 end
 
-function LikelihoodProfile(
+function Profile_LKL(
     model::ProfileModel, data::A, weight::B, λMap::Matrix{T}, bbox::BoundingBox{Int}
 ) where {T<:Real,A<:AbstractMatrix{T},B<:AbstractMatrix{T}}
     amplitude = zeros(T, size(data,2)+1)
-    LikelihoodProfile{T,A,B}(model, data, weight, λMap, bbox, amplitude)
+    Profile_LKL{T,A,B}(model, data, weight, λMap, bbox, amplitude)
 end
 
-function (self::LikelihoodProfile)(coefs::Matrix{T}) ::T where {T<:Real}
+function (self::Profile_LKL)(coefs::Matrix{T}) ::T where {T<:Real}
     UpdateProfileModel(self.model, coefs)
     p = @. GaussianModel2(self.model(self.λMap,($(axes(self.bbox,1)))))
     profile = p ./ sum(p,dims=1)

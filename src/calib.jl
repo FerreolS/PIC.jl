@@ -1,9 +1,9 @@
 """
     GaussianModel2(fwhm::Float64, x::AbstractArray)
 
-Compute the value at position sqrt(r) 1D centered Gaussian
+Compute the value at lenslets_coords sqrt(r) 1D centered Gaussian
 * `fwhm` : full-width at half maximum
-* `x`:  squared sampled position
+* `x`:  squared sampled lenslets_coords
 
 Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
 """
@@ -15,7 +15,7 @@ end
 function GaussianModel2(t::NTuple{2,T}) ::T where {T<:Real} return GaussianModel2(t[1], t[2]) end
 
 """
-    LikelihoodIFS(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray,weight::AbstractArray)
+    Spectral_LKL(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray,weight::AbstractArray)
 
 Build the likelihood function for a given lenslet
 * `lmodel`: model of the lenslet
@@ -23,7 +23,7 @@ Build the likelihood function for a given lenslet
 * `data` : data
 * `weight`: precision (ie inverse variance) of the data
 """
-struct LikelihoodIFS{T<:Real}
+struct Spectral_LKL{T<:Real}
     nλ::Int
     lens::LensletModel
     wavelengths::Vector{T}
@@ -31,7 +31,7 @@ struct LikelihoodIFS{T<:Real}
     weight::Matrix{T}
     spots::Array{T,3}
     amplitude::Vector{T}
-    function LikelihoodIFS{T}(nλ, lens, wavelengths, data, weight, spots, amplitude) where {T}
+    function Spectral_LKL{T}(nλ, lens, wavelengths, data, weight, spots, amplitude) where {T}
         nλ > lens.dmodel.order || error(" order of the law must be less than number of laser")
         size(data) == size(weight)          || throw(ArgumentError)
         size(spots)[1:2] == size(lens.bbox) || throw(ArgumentError)
@@ -41,26 +41,26 @@ struct LikelihoodIFS{T<:Real}
     end
 end
 
-function LikelihoodIFS(
+function Spectral_LKL(
     lens::LensletModel, wavelengths::AbstractVector,
     data::AbstractMatrix{T}, weight::AbstractMatrix{T}
 ) where {T<:Real}
     nλ = length(wavelengths)
     spots = zeros(T, size(lens.bbox)..., nλ)
     amplitude = zeros(T, nλ)
-    LikelihoodIFS{T}(nλ, lens, wavelengths, data, weight, spots, amplitude)
+    Spectral_LKL{T}(nλ, lens, wavelengths, data, weight, spots, amplitude)
 end
 
 """
-    (self::LikelihoodIFS)(x::Vector{Float64})
+    (self::Spectral_LKL)(x::Vector{Float64})
 compute the likelihood for a given lenslet for the parameters `x`
 """
-function  (self::LikelihoodIFS)(x::Vector{T}) ::T where {T<:Real}
+function  (self::Spectral_LKL)(x::Vector{T}) ::T where {T<:Real}
     (fwhm::Vector{T},c::Matrix{T}) = (x[1:(self.nλ)],reshape(x[(self.nλ+1):(3*self.nλ)],2,:));
     self(fwhm,c)
 end
 
-function  (self::LikelihoodIFS)(fwhm::Vector{T},C::Matrix{T}) ::T where {T<:Real}
+function  (self::Spectral_LKL)(fwhm::Vector{T},C::Matrix{T}) ::T where {T<:Real}
     UpdateDispModel(self.lens.dmodel, C);
     bbox = self.lens.bbox;
     (rx,ry) = axes(bbox) # extracting bounding box range
@@ -110,140 +110,149 @@ function updateAmplitude(
 end
 
 function fitSpectralLawAndProfile(
-    laserdata::Matrix{T},
-    laserweights::Matrix{T},
-    lampdata::Matrix{T},
-    lampweights::Matrix{T},
-    λlaser::Vector{Float64},
-    λ0::Float64,
-    lensletsize::NTuple{4,Int},
-    position::Matrix{Float64},
+    lasers_data::Matrix{T},
+    lasers_weights::Matrix{T},
+    lamp_data::Matrix{T},
+    lamp_weights::Matrix{T},
+    lasers_λs::Vector{Float64},
+    λref::Float64,
+    lenslet_size::NTuple{4,Int},
+    lenslets_coords::Matrix{Float64},
     cxinit::Vector{Float64},
     cyinit::Vector{Float64},
     fwhminit::Vector{Float64},
-    wavelengthrange::AbstractVector{Float64};
-    validlenslets::AbstractVector{Bool}=trues(size(position,1)),
-    profileorder::Int = 2,
+    λrange::AbstractVector{Float64};
+    valid_lenslets::AbstractVector{Bool}=trues(size(lenslets_coords,1)),
+    profile_order::Int = 2,
     smalltest ::Bool = false
 ) where {T<:Real}
 
-    numberoflenslet = size(position,1)
-    nλ = length(λlaser)
+    nlens = size(lenslets_coords,1)
+    nλ = length(lasers_λs)
 
     length(fwhminit) == nλ || throw(ArgumentError)
 
-    (dxmin, dxmax,dymin,dymax) = lensletsize
-    nrows_lampAmplitude = (1 + dymin + dymax) + 1 # nrows(lenslet box) + 1 additional cell
+    (dxmin, dxmax, dymin, dymax) = lenslet_size
+    nrows_lamp_amplitudes = (1 + dymin + dymax) + 1 # nrows(lenslet box) + 1 additional cell
     
-    lenslettab = Vector{LensletModel}(undef,numberoflenslet);
-    laserAmplitude = Matrix{Float64}(undef,nλ,numberoflenslet);
-    lampAmplitude = Matrix{Float64}(undef,nrows_lampAmplitude,numberoflenslet);
-    laserfwhm = Matrix{Float64}(undef,nλ,numberoflenslet);
-    laserdist = Matrix{Float64}(undef,2048,2048);
-    λMap =  Matrix{Float64}(undef,2048,2048);
-    p = Progress(numberoflenslet; showspeed=true)
-    indices = findall(validlenslets)
+    lenslets_models = Vector{LensletModel}(undef, nlens)
+    lasers_amplitudes = Matrix{Float64}(undef, nλ, nlens)
+    lamp_amplitudes = Matrix{Float64}(undef, nrows_lamp_amplitudes, nlens)
+    lasers_fwhms = Matrix{Float64}(undef, nλ, nlens)
+    lasers_dists = Matrix{Float64}(undef, 2048, 2048)
+    λmap =  Matrix{Float64}(undef, 2048, 2048)
+    p = Progress(nlens; showspeed=true)
+    
+    indices = findall(valid_lenslets)
     indices = smalltest ? rand(MersenneTwister(1234), indices, 300) : indices
+    
     Threads.@threads for i in indices
-        lensletbox = round(Int, BoundingBox(
-            position[i,1]-dxmin, position[i,1]+dxmax,
-            position[i,2]-dymin, position[i,2]+dymax),
+
+        lenslet_box = round(Int, BoundingBox(
+            lenslets_coords[i,1]-dxmin, lenslets_coords[i,1]+dxmax,
+            lenslets_coords[i,2]-dymin, lenslets_coords[i,2]+dymax),
             RoundNearestTiesUp)
 
-        lenslettab[i] = LensletModel(lensletbox, λ0, nλ-1, profileorder);
+        lenslets_models[i] = LensletModel(lenslet_box, λref, nλ-1, profile_order);
 
         # Fit spectral law
 
-        Cinit= [ [position[i,1] cxinit...]; [position[i,2] cyinit...] ];
-        xinit = vcat([fwhminit[:],Cinit[:]]...);
-        laserDataView = view(laserdata, lensletbox);
-        laserWeightView = view(laserweights,lensletbox);
-        spectrallkl = LikelihoodIFS(lenslettab[i],λlaser, laserDataView,laserWeightView);
-        cost(x::Vector{Float64}) = spectrallkl(x);
-        local xopt
+        xinit = [fwhminit...; lenslets_coords[i,:]...; cxinit[1]; cyinit[1]; cxinit[2]; cyinit[2]]
+        lasers_data_view = view(lasers_data, lenslet_box);
+        lasers_weights_view = view(lasers_weights,lenslet_box);
+        spectral_lkl = Spectral_LKL(
+            lenslets_models[i], lasers_λs, lasers_data_view, lasers_weights_view)
         try
-            xopt = vmlmb(cost, xinit; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
+            vmlmb!(spectral_lkl, xinit; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
         catch e
             @debug showerror(stdout, e)
-            @debug "Error on lenslet  $i"
+            @debug "Error on lenslet $i"
             continue
         end
-        fwhm = xopt[1:nλ]
-        laserAmplitude[:,i] = spectrallkl.amplitude;
-        laserfwhm[:,i] = fwhm
-        (dist, pixλ) = distanceMap(wavelengthrange,lenslettab[i]);
-        view(laserdist,lensletbox) .= dist;
-        view(λMap,lensletbox) .= pixλ;
+        lasers_amplitudes[:,i] = spectral_lkl.amplitude
+        lasers_fwhms[:,i] .= view(xinit, 1:nλ)
+        (dist, pixλ) = distanceMap(λrange, lenslets_models[i])
+        lasers_dists[lenslet_box] .= dist
+        λmap[lenslet_box] .= pixλ
 
         # Fit profile
         
-        lampDataView = view(lampdata, lensletbox);
-        lampWeightView = view(lampweights,lensletbox);
-        profilecoefs = zeros(Float64,2,profileorder+1)
-        profilecoefs[1,1:3] .= [2.3, 2.5, 2.9] # maximum(fwhm)
-        #profilecoefs[1,1] = 3
-        profilecoefs[2,1] = lenslettab[i].dmodel.cx[1]
-        pmodel  =  ProfileModel(λ0,profilecoefs)
-        profilelkl = LikelihoodProfile(pmodel,lampDataView,lampWeightView,pixλ,lensletbox)
-        costpr(x::Matrix{Float64}) = profilelkl(x);
+        lamp_data_view = view(lamp_data, lenslet_box)
+        lamp_weights_view = view(lamp_weights, lenslet_box)
+        profile_coeffs = zeros(Float64, 2, profile_order+1)
+        profile_coeffs[1,1:3] .= [2.3, 2.5, 2.9] # maximum(fwhm)
+        profile_coeffs[2,1] = lenslets_models[i].dmodel.cx[1]
+        profile_model = ProfileModel(λref, profile_coeffs)
+        profile_lkl = Profile_LKL(
+            profile_model, lamp_data_view, lamp_weights_view, pixλ, lenslet_box)
         try
-            vmlmb!(costpr, profilecoefs; verb=false,ftol = (0.0,1e-8),maxeval=500,autodiff=true);
+            vmlmb!(profile_lkl, profile_coeffs
+                   ; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
         catch e
             @debug showerror(stdout, e)
-            @debug "Error on lenslet  $i"
+            @debug "Error on lenslet $i"
             continue
         end
-        pmodel = ProfileModel(λ0, profilecoefs)
-        lenslettab[i] = LensletModel(lensletbox,lenslettab[i].dmodel, pmodel)
+        profile_model = ProfileModel(λref, profile_coeffs)
+        lenslets_models[i] = LensletModel(lenslet_box, lenslets_models[i].dmodel, profile_model)
 
-        profile = @. GaussianModel2(pmodel(pixλ,($(axes(lensletbox,1)))))
-        profile = profile ./ sum(profile,dims=1)
-        lampAmplitude[:,i] .= updateAmplitudeAndBackground(profile,lampDataView,lampWeightView)
-        next!(p);
+        profile = @. GaussianModel2(profile_model(pixλ,($(axes(lenslet_box,1)))))
+        profile ./= sum(profile; dims=1)
+        lamp_amplitudes[:,i] .= updateAmplitudeAndBackground(
+            profile, lamp_data_view, lamp_weights_view)
+            
+        next!(p)
     end
-    ProgressMeter.finish!(p);
-    return (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap);
+    ProgressMeter.finish!(p)
+    
+    (lenslets_models, lasers_amplitudes, lamp_amplitudes, lasers_fwhms, lasers_dists, λmap)
 end
 
-function distanceMap(wavelengthrange::AbstractArray{Float64,1},
-                    lenslet::LensletModel
-                    )
-    bbox = lenslet.bbox;
-    dist = ones(Float64,size(bbox)).*1000;
-    pixλ = ones(Float64,size(bbox));
-    (ax,ay) = axes(bbox)
-    previous_index = 0;
+function distanceMap(
+    λrange::AbstractVector{Float64}, lenslet::LensletModel
+) ::NTuple{2,Matrix{Float64}}
+
+    dist = fill(1000e0,  size(lenslet.bbox))
+    pixλ = ones(Float64, size(lenslet.bbox))
+    
+    (ax, ay) = axes(lenslet.bbox)
+    
+    previous_index = 0
     for I in CartesianIndices(dist)
-        previous_index = max(1,previous_index-5);
-        for  (index,λ) in enumerate(wavelengthrange[previous_index:end])
-            (mx, my)  = lenslet.dmodel(λ)
-            rx = ax[I[1]]-mx;
-            ry = ay[I[2]]-my;
-            r = sign(rx) * sqrt(rx^2 + ry^2);
-            if abs(r) < abs(dist[I[1],I[2]])
-                dist[I[1],I[2]] = r;
-                pixλ[I[1],I[2]] = λ;
+        previous_index = max(1, previous_index-5)
+        for (index,λ) in enumerate(λrange[previous_index:end])
+            (mx, my) = lenslet.dmodel(λ)
+            rx = ax[I[1]] - mx
+            ry = ay[I[2]] - my
+            r = sign(rx) * sqrt(rx^2 + ry^2)
+            if abs(r) < abs(dist[I])
+                dist[I] = r;
+                pixλ[I] = λ;
             else
-                previous_index = previous_index + index-1;
+                previous_index += (index - 1)
                 break
             end
         end
     end
-    return (dist,pixλ)
+
+    (dist, pixλ)
 end
 
-function updateAmplitude(profile,data::Matrix{T},weight::Matrix{T}) where T<:AbstractFloat
+function updateAmplitude(
+    nλ::Int, data::Matrix{T}, weights::Matrix{T}
+) ::Vector{T} where {T<:Real}
+
     A = similar(data)
     b = similar(data)
 
-    @. b = profile * data * weight
-    @. A = profile^2 * weight
-    A = sum(A,dims=1)
-    b = sum(b,dims=1)
+    @. b = nλ * data * weights
+    @. A = nλ^2 * weights
+    A = sum(A; dims=1)
+    b = sum(b; dims=1)
     zA = (A .== T(0)).||(b.<=T(0))
     if any(zA)
-        A[zA] .=1
-        b[zA] .=0
+        A[zA] .= 1
+        b[zA] .= 0
     end
     
     return b ./ A
