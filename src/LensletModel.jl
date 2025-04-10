@@ -9,12 +9,12 @@ The image of a lenslet on the detector is decribed by:
 struct LensletModel
     bbox::BoundingBox{Int}  # Boundingbox of influence of the lenslet on the detector
     disp_model::DispModel       # dispersion model of the lenslet
-    profile::ProfileModel   # intensity profile in the lenslet
-    function LensletModel(bbox, disp_model, profile)
-        disp_model.order  ≥ 0      || throw(ArgumentError)
-        profile.order ≥ 0      || throw(ArgumentError)
-        disp_model.λ0 ≈ profile.λ0 || throw(ArgumentError)
-        new(bbox, disp_model, profile)
+    profile_model::ProfileModel   # intensity profile in the lenslet
+    function LensletModel(bbox, disp_model, profile_model)
+        disp_model.order  ≥ 0            || throw(ArgumentError)
+        profile_model.order ≥ 0          || throw(ArgumentError)
+        disp_model.λ0 ≈ profile_model.λ0 || throw(ArgumentError)
+        new(bbox, disp_model, profile_model)
     end
 end
 
@@ -31,3 +31,6 @@ Lenslet model constructor
 function LensletModel(bbox::BoundingBox{Int}, λ0::Float64, disp_order::Int, profile_order::Int)
     LensletModel(bbox, DispModel(λ0, disp_order), ProfileModel(λ0, profile_order))
 end
+
+
+

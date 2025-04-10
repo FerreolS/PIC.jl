@@ -163,8 +163,8 @@ function compar(
             break
         end
         if isassigned(lenslettabA, i) & isassigned(lenslettabB, i)
-            profileA = lenslettabA[i].profile
-            profileB = lenslettabB[i].profile
+            profileA = lenslettabA[i].profile_model
+            profileB = lenslettabB[i].profile_model
             if !isapprox(profileA.λ0, profileB.λ0)
                 @warn "different profile λ0 lens $i"
                 eq = false

@@ -14,101 +14,6 @@ end
 
 function GaussianModel2(t::NTuple{2,T}) ::T where {T<:Real} return GaussianModel2(t[1], t[2]) end
 
-"""
-    Spectral_LKL(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray,weight::AbstractArray)
-
-Build the likelihood function for a given lenslet
-* `lmodel`: model of the lenslet
-* `laser`: wavelengths of the illumination lasers
-* `data` : data
-* `weight`: precision (ie inverse variance) of the data
-"""
-struct Spectral_LKL{T<:Real,MD<:AbstractMatrix{T},MW<:AbstractMatrix{T}}
-    nλ::Int
-    lenslet_model::LensletModel
-    lasers_λs::Vector{T}
-    data::MD
-    weights::MW
-    spots::Array{T,3}
-    amplitude::Vector{T}
-    function Spectral_LKL{T,MD,MW}(
-        nλ, lenslet_model, lasers_λs, data, weights, spots, amplitude
-    ) where {T,MD,MW}
-        length(lasers_λs) == nλ     || throw(ArgumentError)
-        size(data) == size(weights) || throw(ArgumentError)
-        size(spots,3) == nλ         || throw(ArgumentError)
-        length(amplitude) == nλ     || throw(ArgumentError)
-        nλ > lenslet_model.disp_model.order || throw(ArgumentError)
-        size(spots)[1:2] == size(lenslet_model.bbox) || throw(ArgumentError)
-        new{T,MD,MW}(nλ, lenslet_model, lasers_λs, data, weights, spots, amplitude)
-    end
-end
-
-function Spectral_LKL(
-    lenslet_model::LensletModel, lasers_λs::Vector{T}, data::MD, weights::MW
-) where {T<:Real,MD<:AbstractMatrix{T},MW<:AbstractMatrix{T}}
-    nλ = length(lasers_λs)
-    spots = zeros(T, size(lenslet_model.bbox)..., nλ)
-    amplitude = zeros(T, nλ)
-    Spectral_LKL{T,MD,MW}(nλ, lenslet_model, lasers_λs, data, weights, spots, amplitude)
-end
-
-function (self::Spectral_LKL)(xs::Vector{T}) ::T where {T<:Real}
-
-    fwhm = xs[1:self.nλ]
-    cxs = xs[ (self.nλ+1) : 2 : (end-1) ]
-    cys = xs[ (self.nλ+2) : 2 :  end    ]
-    updateDispModel!(self.lenslet_model.disp_model, cxs, cys)
-    
-    bbox = self.lenslet_model.bbox
-    
-    (rx,ry) = axes(bbox) # extracting bounding box range
-    
-    m = Zygote.Buffer(self.spots)
-    @inbounds for (index,λ) in enumerate(self.lasers_λs)  # For all laser
-        (mx, my)  = self.lenslet_model.disp_model(λ);  # center of the index-th Gaussian spot
-        r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
-        m[:,:,index] = GaussianModel2.(fwhm[index], r);
-    end
-    spots = copy(m)
-    Zygote.@ignore self.amplitude .= updateAmplitude(self.nλ, spots, self.data, self.weights)
-    sumspot = zeros(T, size(bbox))
-    @inbounds for i =1:self.nλ
-        sumspot += self.amplitude[i] *spots[:,:,i]
-    end
-    return sum(self.weights .* (self.data .-sumspot).^2)
-end
-
- """
-        updateAmplitude(nλ,m,d,W)
-
-    return the `nλ` amplitudes `a` according the the model `m`, the data and the precision `W`
-    such that
-    `a = argmin_a || a*m - D||^2_W`
-    where
-    * `nλ` : is the number of spots in the model
-    * `m`:  is the model composed of `nλ` images of spots
-    * `d`:  is the data
-    * `W`: is the precision (inverse variance) of the data
-"""
-function updateAmplitude(
-    N::Int, spots::AbstractArray{T,3},
-    data::AbstractMatrix{T}, weight::AbstractMatrix{T}
-) ::Vector{T} where {T<:Real}
-    A = @MMatrix zeros(Float64,N,N)
-    b = @MVector zeros(Float64,N)
-    mw = similar(spots);
-    @inbounds for index=1:N
-        mw[:,:,index] .=  spots[:,:,index].* weight ;
-        b[index] = sum(mw[:,:,index].* data );
-        A[index,index] = sum(mw[:,:,index].* spots[:,:,index]);
-        for i=1:index-1
-            A[i,index] = A[index,i] = sum(mw[:,:,index].* spots[:,:,i])
-        end
-    end
-    return inv(A)*b
-end
-
 function fitSpectralLawAndProfile(
     lasers_data::Matrix{T},
     lasers_weights::Matrix{T},
@@ -148,57 +53,55 @@ function fitSpectralLawAndProfile(
     
     Threads.@threads for i in indices
 
-        lenslet_box = round(Int, BoundingBox(
+        bbox = round(Int, BoundingBox(
             lenslets_coords[i,1]-dxmin, lenslets_coords[i,1]+dxmax,
             lenslets_coords[i,2]-dymin, lenslets_coords[i,2]+dymax),
             RoundNearestTiesUp)
 
-        lenslets_models[i] = LensletModel(lenslet_box, λref, nλ-1, profile_order);
+        lenslets_models[i] = LensletModel(bbox, λref, nλ-1, profile_order);
 
-        # Fit spectral law
+        # Fit Dispersion
 
-        xinit = [fwhminit...; lenslets_coords[i,:]...; cxinit[1]; cyinit[1]; cxinit[2]; cyinit[2]]
-        lasers_data_view = view(lasers_data, lenslet_box);
-        lasers_weights_view = view(lasers_weights,lenslet_box);
-        spectral_lkl = Spectral_LKL(
-            lenslets_models[i], lasers_λs, lasers_data_view, lasers_weights_view)
+        fitvars = [
+            fwhminit...; lenslets_coords[i,:]...; cxinit[1]; cyinit[1]; cxinit[2]; cyinit[2]]
+        lasers_data_view = view(lasers_data, bbox);
+        lasers_weights_view = view(lasers_weights,bbox);
+        disp_lkl = Disp_LKL(lenslets_models[i].bbox, lenslets_models[i].disp_model,
+                            lasers_λs, lasers_data_view, lasers_weights_view)
         try
-            vmlmb!(spectral_lkl, xinit; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
+            vmlmb!(disp_lkl, fitvars; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
         catch e
             @debug showerror(stdout, e)
             @debug "Error on lenslet $i"
             continue
         end
-        lasers_amplitudes[:,i] = spectral_lkl.amplitude
-        lasers_fwhms[:,i] .= view(xinit, 1:nλ)
+        lasers_amplitudes[:,i] = disp_lkl.amplitude
+        lasers_fwhms[:,i] .= view(fitvars, 1:nλ)
         (dist, pixλ) = distanceMap(λrange, lenslets_models[i])
-        lasers_dists[lenslet_box] .= dist
-        λmap[lenslet_box] .= pixλ
+        lasers_dists[bbox] .= dist
+        λmap[bbox] .= pixλ
 
         # Fit profile
         
-        lamp_data_view = view(lamp_data, lenslet_box)
-        lamp_weights_view = view(lamp_weights, lenslet_box)
-        profile_coeffs = zeros(Float64, 2, profile_order+1)
-        profile_coeffs[1,1:3] .= [2.3, 2.5, 2.9] # maximum(fwhm)
-        profile_coeffs[2,1] = lenslets_models[i].disp_model.cx[1]
-        profile_model = ProfileModel(λref, profile_coeffs)
-        profile_lkl = Profile_LKL(
-            profile_model, lamp_data_view, lamp_weights_view, pixλ, lenslet_box)
+        lamp_data_view = view(lamp_data, bbox)
+        lamp_weights_view = view(lamp_weights, bbox)
+        fitvars = [2.3; 2.5; 2.9; lenslets_models[i].disp_model.cx[1]; 0; 0]
+        profile_lkl = Profile_LKL(bbox, lenslets_models[i].profile_model,
+                                  lamp_data_view, lamp_weights_view, pixλ)
         try
-            vmlmb!(profile_lkl, profile_coeffs
+            vmlmb!(profile_lkl, fitvars
                    ; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
         catch e
             @debug showerror(stdout, e)
             @debug "Error on lenslet $i"
             continue
         end
-        profile_model = ProfileModel(λref, profile_coeffs)
-        lenslets_models[i] = LensletModel(lenslet_box, lenslets_models[i].disp_model, profile_model)
+        profile_model = ProfileModel(λref, fitvars)
+        lenslets_models[i] = LensletModel(bbox, lenslets_models[i].disp_model, profile_model)
 
-        profile = @. GaussianModel2(profile_model(pixλ,($(axes(lenslet_box,1)))))
+        profile = @. GaussianModel2(profile_model(pixλ,($(axes(bbox,1)))))
         profile ./= sum(profile; dims=1)
-        lamp_amplitudes[:,i] .= updateAmplitudeAndBackground(
+        lamp_amplitudes[:,i] .= updateAmplitudeAndBackground!(
             profile, lamp_data_view, lamp_weights_view)
             
         next!(p)
@@ -238,49 +141,3 @@ function distanceMap(
     (dist, pixλ)
 end
 
-function updateAmplitude(
-    nλ::Int, data::Matrix{T}, weights::Matrix{T}
-) ::Vector{T} where {T<:Real}
-
-    A = similar(data)
-    b = similar(data)
-
-    @. b = nλ * data * weights
-    @. A = nλ^2 * weights
-    A = sum(A; dims=1)
-    b = sum(b; dims=1)
-    zA = (A .== T(0)).||(b.<=T(0))
-    if any(zA)
-        A[zA] .= 1
-        b[zA] .= 0
-    end
-    
-    return b ./ A
-end
-
-function updateAmplitudeAndBackground(profile,data::MA,weight::MB) where {T<:AbstractFloat,MA<:AbstractMatrix{T},MB<:AbstractMatrix{T}}
-    
-    c = @. profile *  weight
-    b = @. profile * data * weight
-    a = @. profile^2 * weight
-    a = sum(a,dims=1)[:]
-    b = sum(b,dims=1)[:]
-    c = sum(c,dims=1)[:]
-    za = (a .== T(0)).||(b.<=T(0))
-    if any(za)
-        a[za] .=T(1)
-        b[za] .=T(0)
-        c[za] .=T(0)
-    end
-    
-
-    N = length(a)
-    A = Matrix{T}(undef,N+1,N+1)
-    A[1,1] = sum(weight)
-    A[1,2:end] .= A[2:end,1] .= c[:]
-    A[2:end,2:end] .= diagm(a)
-
-    b =  vcat(sum(data .* weight),b[:])
-
-    return  inv(A)*b
-end
