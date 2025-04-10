@@ -5,7 +5,7 @@ function exporte(filepath, lenslettab, laserAmplitude, lampAmplitude, laserfwhm,
     profileorder = 0
     for i in 1:nlens
         if isassigned(lenslettab, i)
-            dmodelorder = lenslettab[i].dmodel.order
+            dmodelorder = lenslettab[i].disp_model.order
             profileorder = lenslettab[i].profile.order
             break
         end
@@ -18,7 +18,7 @@ function exporte(filepath, lenslettab, laserAmplitude, lampAmplitude, laserfwhm,
         if isassigned(lenslettab, i)
             lens = lenslettab[i]
             bboxtab[:,:,i] .= [lens.bbox.xmin; lens.bbox.xmax;; lens.bbox.ymin; lens.bbox.ymax]
-            dmodel = lens.dmodel
+            dmodel = lens.disp_model
             dmodeltab[:,1,i] .= [ dmodel.λ0; dmodel.order ]
             for j in 1:(dmodel.order+1)
                 dmodeltab[:,j+1,i] .= [ dmodel.cx[j] ; dmodel.cy[j] ]
@@ -125,8 +125,8 @@ function compar(
             break
         end
         if isassigned(lenslettabA, i) & isassigned(lenslettabB, i)
-            dmodelA = lenslettabA[i].dmodel
-            dmodelB = lenslettabB[i].dmodel
+            dmodelA = lenslettabA[i].disp_model
+            dmodelB = lenslettabB[i].disp_model
             if !isapprox(dmodelA.λ0, dmodelB.λ0)
                 @warn "different dmodel λ0 lens $i"
                 eq = false

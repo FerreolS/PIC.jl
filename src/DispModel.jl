@@ -47,17 +47,19 @@ function (self::DispModel)(λ::Float64)
     (x, y)
 end
 
+
 """
-    UpdateDispModel(self::DispModel, C::Array{Float64,2})
+    updateDispModel!(self::DispModel, cxs::Vector{Float64}, cys::Vector{Float64}) -> Nothing
 
 Update the coefficients  of the DispModel .
 * `self`: DispModel object
-* `C` : array containing the polynomial coefficients.
+* `cxs` : vector containing the X polynomial coefficients
+* `cys` : vector containing the X polynomial coefficients
 """
-function UpdateDispModel(self::DispModel, C::Array{Float64,2})
-    size(C) == (2,self.order+1) || error("coefficients array does not have the right size")
-    self.cx = C[1,:]
-    self.cy = C[2,:]
-    return self
+function updateDispModel!(self::DispModel, cxs::Vector{Float64}, cys::Vector{Float64}) ::Nothing
+    length(cxs) == (self.order+1) || throw(ArgumentError)
+    length(cys) == (self.order+1) || throw(ArgumentError)
+    self.cx = cxs
+    self.cy = cys
+    nothing
 end
-

@@ -38,7 +38,7 @@ struct Spectral_LKL{T<:Real,MD<:AbstractMatrix{T},MW<:AbstractMatrix{T}}
         size(data) == size(weights) || throw(ArgumentError)
         size(spots,3) == nλ         || throw(ArgumentError)
         length(amplitude) == nλ     || throw(ArgumentError)
-        nλ > lenslet_model.dmodel.order || throw(ArgumentError)
+        nλ > lenslet_model.disp_model.order || throw(ArgumentError)
         size(spots)[1:2] == size(lenslet_model.bbox) || throw(ArgumentError)
         new{T,MD,MW}(nλ, lenslet_model, lasers_λs, data, weights, spots, amplitude)
     end
@@ -53,16 +53,12 @@ function Spectral_LKL(
     Spectral_LKL{T,MD,MW}(nλ, lenslet_model, lasers_λs, data, weights, spots, amplitude)
 end
 
-"""
-    (self::Spectral_LKL)(x::Vector{Float64})
-compute the likelihood for a given lenslet for the parameters `x`
-"""
-function  (self::Spectral_LKL)(x::Vector{T}) ::T where {T<:Real}
-    (fwhm::Vector{T},c::Matrix{T}) = (x[1:(self.nλ)],reshape(x[(self.nλ+1):(3*self.nλ)],2,:));
-    self(fwhm,c)
-end
+function (self::Spectral_LKL)(xs::Vector{T}) ::T where {T<:Real}
 
-    UpdateDispModel(self.lenslet_model.dmodel, C);
+    fwhm = xs[1:self.nλ]
+    cxs = xs[ (self.nλ+1) : 2 : (end-1) ]
+    cys = xs[ (self.nλ+2) : 2 :  end    ]
+    updateDispModel!(self.lenslet_model.disp_model, cxs, cys)
     
     bbox = self.lenslet_model.bbox
     
@@ -70,7 +66,7 @@ end
     
     m = Zygote.Buffer(self.spots)
     @inbounds for (index,λ) in enumerate(self.lasers_λs)  # For all laser
-        (mx, my)  = self.lenslet_model.dmodel(λ);  # center of the index-th Gaussian spot
+        (mx, my)  = self.lenslet_model.disp_model(λ);  # center of the index-th Gaussian spot
         r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
         m[:,:,index] = GaussianModel2.(fwhm[index], r);
     end
@@ -185,7 +181,7 @@ function fitSpectralLawAndProfile(
         lamp_weights_view = view(lamp_weights, lenslet_box)
         profile_coeffs = zeros(Float64, 2, profile_order+1)
         profile_coeffs[1,1:3] .= [2.3, 2.5, 2.9] # maximum(fwhm)
-        profile_coeffs[2,1] = lenslets_models[i].dmodel.cx[1]
+        profile_coeffs[2,1] = lenslets_models[i].disp_model.cx[1]
         profile_model = ProfileModel(λref, profile_coeffs)
         profile_lkl = Profile_LKL(
             profile_model, lamp_data_view, lamp_weights_view, pixλ, lenslet_box)
@@ -198,7 +194,7 @@ function fitSpectralLawAndProfile(
             continue
         end
         profile_model = ProfileModel(λref, profile_coeffs)
-        lenslets_models[i] = LensletModel(lenslet_box, lenslets_models[i].dmodel, profile_model)
+        lenslets_models[i] = LensletModel(lenslet_box, lenslets_models[i].disp_model, profile_model)
 
         profile = @. GaussianModel2(profile_model(pixλ,($(axes(lenslet_box,1)))))
         profile ./= sum(profile; dims=1)
@@ -225,7 +221,7 @@ function distanceMap(
     for I in CartesianIndices(dist)
         previous_index = max(1, previous_index-5)
         for (index,λ) in enumerate(λrange[previous_index:end])
-            (mx, my) = lenslet.dmodel(λ)
+            (mx, my) = lenslet.disp_model(λ)
             rx = ax[I[1]] - mx
             ry = ay[I[2]] - my
             r = sign(rx) * sqrt(rx^2 + ry^2)

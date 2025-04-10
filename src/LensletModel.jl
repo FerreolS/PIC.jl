@@ -1,20 +1,20 @@
 """
-    LensletModel(bbox::BoundingBox{Int},dmodel::DispModel)
+    LensletModel(bbox::BoundingBox{Int},disp_model::DispModel)
 
 Model of a lenslet
 The image of a lenslet on the detector is decribed by:
 * `bbox` the boundingbox of its influence on the detector
-* `dmodel` the dispersion model described by a object of type `DispModel`
+* `disp_model` the dispersion model described by a object of type `DispModel`
 """
 struct LensletModel
     bbox::BoundingBox{Int}  # Boundingbox of influence of the lenslet on the detector
-    dmodel::DispModel       # dispersion model of the lenslet
+    disp_model::DispModel       # dispersion model of the lenslet
     profile::ProfileModel   # intensity profile in the lenslet
-    function LensletModel(bbox, dmodel, profile)
-        dmodel.order  ≥ 0      || throw(ArgumentError)
+    function LensletModel(bbox, disp_model, profile)
+        disp_model.order  ≥ 0      || throw(ArgumentError)
         profile.order ≥ 0      || throw(ArgumentError)
-        dmodel.λ0 ≈ profile.λ0 || throw(ArgumentError)
-        new(bbox, dmodel, profile)
+        disp_model.λ0 ≈ profile.λ0 || throw(ArgumentError)
+        new(bbox, disp_model, profile)
     end
 end
 
