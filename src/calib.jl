@@ -23,32 +23,34 @@ Build the likelihood function for a given lenslet
 * `data` : data
 * `weight`: precision (ie inverse variance) of the data
 """
-struct Spectral_LKL{T<:Real}
+struct Spectral_LKL{T<:Real,MD<:AbstractMatrix{T},MW<:AbstractMatrix{T}}
     nλ::Int
-    lens::LensletModel
-    wavelengths::Vector{T}
-    data::Matrix{T}
-    weight::Matrix{T}
+    lenslet_model::LensletModel
+    lasers_λs::Vector{T}
+    data::MD
+    weights::MW
     spots::Array{T,3}
     amplitude::Vector{T}
-    function Spectral_LKL{T}(nλ, lens, wavelengths, data, weight, spots, amplitude) where {T}
-        nλ > lens.dmodel.order || error(" order of the law must be less than number of laser")
-        size(data) == size(weight)          || throw(ArgumentError)
-        size(spots)[1:2] == size(lens.bbox) || throw(ArgumentError)
-        size(spots,3) == nλ                 || throw(ArgumentError)
-        length(amplitude) == nλ             || throw(ArgumentError)
-        new{T}(nλ, lens, wavelengths, data, weight, spots, amplitude)
+    function Spectral_LKL{T,MD,MW}(
+        nλ, lenslet_model, lasers_λs, data, weights, spots, amplitude
+    ) where {T,MD,MW}
+        length(lasers_λs) == nλ     || throw(ArgumentError)
+        size(data) == size(weights) || throw(ArgumentError)
+        size(spots,3) == nλ         || throw(ArgumentError)
+        length(amplitude) == nλ     || throw(ArgumentError)
+        nλ > lenslet_model.dmodel.order || throw(ArgumentError)
+        size(spots)[1:2] == size(lenslet_model.bbox) || throw(ArgumentError)
+        new{T,MD,MW}(nλ, lenslet_model, lasers_λs, data, weights, spots, amplitude)
     end
 end
 
 function Spectral_LKL(
-    lens::LensletModel, wavelengths::AbstractVector,
-    data::AbstractMatrix{T}, weight::AbstractMatrix{T}
-) where {T<:Real}
-    nλ = length(wavelengths)
-    spots = zeros(T, size(lens.bbox)..., nλ)
+    lenslet_model::LensletModel, lasers_λs::Vector{T}, data::MD, weights::MW
+) where {T<:Real,MD<:AbstractMatrix{T},MW<:AbstractMatrix{T}}
+    nλ = length(lasers_λs)
+    spots = zeros(T, size(lenslet_model.bbox)..., nλ)
     amplitude = zeros(T, nλ)
-    Spectral_LKL{T}(nλ, lens, wavelengths, data, weight, spots, amplitude)
+    Spectral_LKL{T,MD,MW}(nλ, lenslet_model, lasers_λs, data, weights, spots, amplitude)
 end
 
 """
@@ -60,23 +62,25 @@ function  (self::Spectral_LKL)(x::Vector{T}) ::T where {T<:Real}
     self(fwhm,c)
 end
 
-function  (self::Spectral_LKL)(fwhm::Vector{T},C::Matrix{T}) ::T where {T<:Real}
-    UpdateDispModel(self.lens.dmodel, C);
-    bbox = self.lens.bbox;
+    UpdateDispModel(self.lenslet_model.dmodel, C);
+    
+    bbox = self.lenslet_model.bbox
+    
     (rx,ry) = axes(bbox) # extracting bounding box range
-    m = Zygote.Buffer(self.spots);
-    @inbounds for (index, λ) in enumerate(self.wavelengths)  # For all laser
-        (mx, my)  = self.lens.dmodel(λ);  # center of the index-th Gaussian spot
+    
+    m = Zygote.Buffer(self.spots)
+    @inbounds for (index,λ) in enumerate(self.lasers_λs)  # For all laser
+        (mx, my)  = self.lenslet_model.dmodel(λ);  # center of the index-th Gaussian spot
         r = ((rx.-mx).^2) .+ ((ry.-my).^2)';
         m[:,:,index] = GaussianModel2.(fwhm[index], r);
     end
     spots = copy(m)
-    Zygote.@ignore self.amplitude .= updateAmplitude(self.nλ,spots,self.data,self.weight)
+    Zygote.@ignore self.amplitude .= updateAmplitude(self.nλ, spots, self.data, self.weights)
     sumspot = zeros(T, size(bbox))
     @inbounds for i =1:self.nλ
         sumspot += self.amplitude[i] *spots[:,:,i]
     end
-    return sum(self.weight .* (self.data .-sumspot).^2)
+    return sum(self.weights .* (self.data .-sumspot).^2)
 end
 
  """
