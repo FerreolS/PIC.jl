@@ -7,9 +7,9 @@ The image of a lenslet on the detector is decribed by:
 * `disp_model` the dispersion model described by a object of type `DispModel`
 """
 struct LensletModel
-    bbox::BoundingBox{Int}  # Boundingbox of influence of the lenslet on the detector
-    disp_model::DispModel       # dispersion model of the lenslet
-    profile_model::ProfileModel   # intensity profile in the lenslet
+    bbox::BoundingBox{Int}
+    disp_model::DispersionModel
+    profile_model::ProfileModel
     function LensletModel(bbox, disp_model, profile_model)
         disp_model.order  ≥ 0            || throw(ArgumentError)
         profile_model.order ≥ 0          || throw(ArgumentError)
@@ -29,7 +29,7 @@ Lenslet model constructor
 * `prof_order` : ProfileModel order of the polynomials
 """
 function LensletModel(bbox::BoundingBox{Int}, λ0::Float64, disp_order::Int, profile_order::Int)
-    LensletModel(bbox, DispModel(λ0, disp_order), ProfileModel(λ0, profile_order))
+    LensletModel(bbox, DispersionModel(λ0, disp_order), ProfileModel(λ0, profile_order))
 end
 
 

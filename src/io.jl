@@ -66,7 +66,7 @@ function importe(filepath)
             if all(isnan, bbox)
                 continue
             else
-                dmodel = DispModel(dmodeltab[1,1,i], Int(dmodeltab[2,1,i]),
+                dmodel = DispersionModel(dmodeltab[1,1,i], Int(dmodeltab[2,1,i]),
                                    dmodeltab[1,2:end,i], dmodeltab[2,2:end,i])
                 profile = ProfileModel(profiletab[1,1,i], Int(profiletab[2,1,i]),
                                        profiletab[1,2:end,i], profiletab[2,2:end,i])

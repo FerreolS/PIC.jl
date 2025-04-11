@@ -13,8 +13,8 @@ end
 
 function ProfileModel(λ0::Float64, order::Int)
     cλ = zeros(order+1)
-    cλ[1] = 1
     cy = zeros(order+1)
+    cλ[1] = 1
     cy[1] = 1
     ProfileModel(λ0, order, cλ, cy)
 end
@@ -40,32 +40,33 @@ function updateProfileModel!(self::ProfileModel, coefs::Vector{Float64}) ::Nothi
     nothing
 end
 
-struct Profile_LKL{T<:Real,MD<:AbstractMatrix{T},MW<:AbstractMatrix{T}}
+struct Profile_LKL{D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
     bbox::BoundingBox{Int}
     profile_model::ProfileModel
-    data::MD
-    weights::MW
-    λMap::Matrix{T}
-    amplitude::Vector{T}
-    function Profile_LKL{T,MD,MW}(
+    data::D
+    weights::W
+    λMap::Matrix{Float64}
+    amplitude::Vector{Float64}
+    function Profile_LKL{D,W}(
         bbox, profile_model, data, weights, λMap, amplitude
-    ) where {T,MD,MW}
+    ) where {D,W}
         size(data) == size(weights)         || throw(ArgumentError)
         size(data) == size(λMap)            || throw(ArgumentError)
         size(data) == size(bbox)            || throw(ArgumentError)
         size(data,2)+1 == length(amplitude) || throw(ArgumentError)
-        new{T,MD,MW}(bbox, profile_model, data, weights, λMap, amplitude)
+        new{D,W}(bbox, profile_model, data, weights, λMap, amplitude)
     end
 end
 
 function Profile_LKL(
-    bbox::BoundingBox{Int}, profile_model::ProfileModel, data::MD, weight::MW, λMap::Matrix{T}
-) where {T<:Real,MD<:AbstractMatrix{T},MW<:AbstractMatrix{T}}
-    amplitude = zeros(T, size(data,2)+1)
-    Profile_LKL{T,MD,MW}(bbox, profile_model, data, weight, λMap, amplitude)
+    bbox::BoundingBox{Int}, profile_model::ProfileModel,
+    data::D, weight::W, λMap::Matrix{Float64}
+) where {D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
+    amplitude = zeros(Float64, size(data,2)+1)
+    Profile_LKL{D,W}(bbox, profile_model, data, weight, λMap, amplitude)
 end
 
-function (self::Profile_LKL)(coefs::Vector{T}) ::T where {T<:Real}
+function (self::Profile_LKL)(coefs::Vector{Float64}) ::Float64
     updateProfileModel!(self.profile_model, coefs)
     p = @. GaussianModel2(self.profile_model(self.λMap,($(axes(self.bbox,1)))))
     profile = p ./ sum(p; dims=1)
@@ -75,30 +76,29 @@ function (self::Profile_LKL)(coefs::Vector{T}) ::T where {T<:Real}
 end
 
 function updateAmplitudeAndBackground!(
-    profile,data::MA,weights::MB
-) ::Vector{T} where {T<:AbstractFloat,MA<:AbstractMatrix{T},MB<:AbstractMatrix{T}}
+    profile, data::D, weights::W
+) ::Vector{Float64} where {D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
     
     c = @. profile *  weights
     b = @. profile * data * weights
     a = @. profile^2 * weights
-    a = sum(a,dims=1)[:]
-    b = sum(b,dims=1)[:]
-    c = sum(c,dims=1)[:]
-    za = (a .== T(0)).||(b.<=T(0))
+    a = reshape(sum(a; dims=1), Val(1))
+    b = reshape(sum(b; dims=1), Val(1))
+    c = reshape(sum(c; dims=1), Val(1))
+    za = (a .== 0) .|| (b .<= 0)
     if any(za)
-        a[za] .=T(1)
-        b[za] .=T(0)
-        c[za] .=T(0)
+        a[za] .= 1
+        b[za] .= 0
+        c[za] .= 0
     end
-    
 
     N = length(a)
-    A = Matrix{T}(undef,N+1,N+1)
+    A = Matrix{Float64}(undef,N+1,N+1)
     A[1,1] = sum(weights)
     A[1,2:end] .= A[2:end,1] .= c[:]
     A[2:end,2:end] .= diagm(a)
 
-    b =  vcat(sum(data .* weights),b[:])
+    b = vcat(sum(data .* weights), b[:])
 
-    return  inv(A)*b
+    return inv(A) * b
 end

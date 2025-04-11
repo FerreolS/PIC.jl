@@ -1,3 +1,22 @@
+const NLENS = 18908
+
+const LASERS_λS = [ 987.72e-9, 1123.71e-9, 1309.37e-9, 1545.10e-9 ]
+const LASERS_FWHMS_INIT = [2.3, 2.4 , 2.7]
+const λRANGE = LinRange(850e-9, 1600e-9, 10000) # coarse wavelength range of the instrument
+
+const LENS_DX_LOWER = 2
+const LENS_DX_UPPER = 2
+const LENS_DY_LOWER = 21
+const LENS_DY_UPPER = 18
+
+const DISPERSION_CXY0S_INIT_PATH = joinpath(dirname(pathof(PIC)), "dispersion_cxy0s.txt")
+const DISPERSION_CXY0S = readdlm(DISPERSION_CXY0S_INIT_PATH, Float64)
+const DISPERSION_CX1_MEDIAN =  -0.6001811340726275
+const DISPERSION_CX2_MEDIAN =  -0.3187688427580339
+const DISPERSION_CY1_MEDIAN =  89.9795748752424
+const DISPERSION_CY2_MEDIAN = -52.635157560302524
+
+
 """
     GaussianModel2(fwhm::Float64, x::AbstractArray)
 
@@ -15,30 +34,41 @@ end
 function GaussianModel2(t::NTuple{2,T}) ::T where {T<:Real} return GaussianModel2(t[1], t[2]) end
 
 function fitSpectralLawAndProfile(
-    lasers_data::Matrix{T},
-    lasers_weights::Matrix{T},
-    lamp_data::Matrix{T},
-    lamp_weights::Matrix{T},
-    lasers_λs::Vector{Float64},
-    λref::Float64,
-    lenslet_size::NTuple{4,Int},
-    lenslets_coords::Matrix{Float64},
-    cxinit::Vector{Float64},
-    cyinit::Vector{Float64},
-    fwhminit::Vector{Float64},
-    λrange::AbstractVector{Float64};
-    valid_lenslets::AbstractVector{Bool}=trues(size(lenslets_coords,1)),
-    profile_order::Int = 2,
-    smalltest ::Bool = false
-) where {T<:Real}
+    lasers_data    ::Matrix{<:Real},
+    lasers_weights ::Matrix{<:Real},
+    lamp_data      ::Matrix{<:Real},
+    lamp_weights   ::Matrix{<:Real},
+    ; nλ ::Int,
+      lasers_λs ::Vector{Float64},
+      lasers_fwhms_init ::Vector{Float64},
+      λrange ::AbstractVector{Float64},
+      λref ::Float64 = mean(lasers_λs),
+      nlens ::Int = NLENS,
+      disp_cxy0s ::Matrix{Float64} = DISPERSION_CXY0S,
+      lens_dx_lower ::Int = LENS_DX_LOWER,
+      lens_dx_upper ::Int = LENS_DX_UPPER,
+      lens_dy_lower ::Int = LENS_DY_LOWER,
+      lens_dy_upper ::Int = LENS_DY_UPPER,
+      profile_order ::Int = 2,
+      valid_lenslets ::BitVector = trues(nlens)
+)
+    size(lasers_data) == size(lasers_weights) == (2048,2048) || throw(ArgumentError)
+    size(lamp_data)   == size(lamp_weights)   == (2048,2048) || throw(ArgumentError)
+    nλ ≥ 2                                                   || throw(ArgumentError)
+    size(lasers_λs) == size(lasers_fwhms_init) == (nλ,)      || throw(ArgumentError)
+    nlens ≥ 1                                                || throw(ArgumentError)
+    size(disp_cxy0s) == (nlens,2)                            || throw(ArgumentError)
+    lens_dx_lower ≥ 0                                        || throw(ArgumentError)
+    lens_dx_upper ≥ 0                                        || throw(ArgumentError)
+    lens_dy_lower ≥ 0                                        || throw(ArgumentError)
+    lens_dy_upper ≥ 0                                        || throw(ArgumentError)
+    profile_order ≥ 1                                        || throw(ArgumentError)
+    size(valid_lenslets) == (nlens,)                         || throw(ArgumentError)
 
-    nlens = size(lenslets_coords,1)
-    nλ = length(lasers_λs)
+    lens_width  = lens_dx_lower + 1 + lens_dx_upper
+    lens_height = lens_dy_lower + 1 + lens_dy_upper
 
-    length(fwhminit) == nλ || throw(ArgumentError)
-
-    (dxmin, dxmax, dymin, dymax) = lenslet_size
-    nrows_lamp_amplitudes = (1 + dymin + dymax) + 1 # nrows(lenslet box) + 1 additional cell
+    nrows_lamp_amplitudes = lens_height + 1 # 1 additional cell
     
     lenslets_models = Vector{LensletModel}(undef, nlens)
     lasers_amplitudes = Matrix{Float64}(undef, nλ, nlens)
@@ -46,28 +76,38 @@ function fitSpectralLawAndProfile(
     lasers_fwhms = Matrix{Float64}(undef, nλ, nlens)
     lasers_dists = Matrix{Float64}(undef, 2048, 2048)
     λmap =  Matrix{Float64}(undef, 2048, 2048)
+
     p = Progress(nlens; showspeed=true)
-    
-    indices = findall(valid_lenslets)
-    indices = smalltest ? rand(MersenneTwister(1234), indices, 300) : indices
-    
-    Threads.@threads for i in indices
+
+    Threads.@threads for i in findall(valid_lenslets)
 
         bbox = round(Int, BoundingBox(
-            lenslets_coords[i,1]-dxmin, lenslets_coords[i,1]+dxmax,
-            lenslets_coords[i,2]-dymin, lenslets_coords[i,2]+dymax),
-            RoundNearestTiesUp)
+            (disp_cxy0s[i,1] - lens_dx_lower), (disp_cxy0s[i,1] + lens_dx_upper),
+            (disp_cxy0s[i,2] - lens_dy_lower), (disp_cxy0s[i,2] + lens_dy_upper)),
+            RoundNearestTiesUp) # rounding mode to preserve bbox size
+
+        if size(bbox) != (lens_width,lens_height)
+            @error "bbox size $(size(bbox)) should be $((lens_width,lens_height))"
+            continue
+        end
+
+        ((bbox.xmin ≥ 1) & (bbox.xmax ≤ 2048) & (bbox.ymin ≥ 1) & (bbox.ymax ≤ 2048)) || continue
 
         lenslets_models[i] = LensletModel(bbox, λref, nλ-1, profile_order);
 
         # Fit Dispersion
 
-        fitvars = [
-            fwhminit...; lenslets_coords[i,:]...; cxinit[1]; cyinit[1]; cxinit[2]; cyinit[2]]
-        lasers_data_view = view(lasers_data, bbox);
-        lasers_weights_view = view(lasers_weights,bbox);
-        disp_lkl = Disp_LKL(lenslets_models[i].bbox, lenslets_models[i].disp_model,
-                            lasers_λs, lasers_data_view, lasers_weights_view)
+        fitvars = [ lasers_fwhms_init...                 ;
+                    disp_cxy0s[i,1:2]...                 ;
+                    DISPERSION_CX1_MEDIAN * (λref*1e6)   ;
+                    DISPERSION_CY1_MEDIAN * (λref*1e6)   ;
+                    DISPERSION_CX2_MEDIAN * (λref*1e6)^2 ;
+                    DISPERSION_CY2_MEDIAN * (λref*1e6)^2 ]
+
+        lasers_data_view = view(lasers_data, bbox)
+        lasers_weights_view = view(lasers_weights, bbox)
+        disp_lkl = Dispersion_LKL(bbox, lenslets_models[i].disp_model,
+                                  lasers_λs, lasers_data_view, lasers_weights_view)
         try
             vmlmb!(disp_lkl, fitvars; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
         catch e
