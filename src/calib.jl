@@ -4,6 +4,8 @@ const LASERS_λS = [ 987.72e-9, 1123.71e-9, 1309.37e-9, 1545.10e-9 ]
 const LASERS_FWHMS_INIT = [2.3, 2.4 , 2.7]
 const λRANGE = LinRange(850e-9, 1600e-9, 10000) # coarse wavelength range of the instrument
 
+const DISP_ORDER = 2
+
 const LENS_DX_LOWER = 2
 const LENS_DX_UPPER = 2
 const LENS_DY_LOWER = 21
@@ -16,6 +18,7 @@ const DISPERSION_CX2_MEDIAN =  -0.3187688427580339
 const DISPERSION_CY1_MEDIAN =  89.9795748752424
 const DISPERSION_CY2_MEDIAN = -52.635157560302524
 
+const PROFILE_CλS = [2.3; 2.5; 2.9]
 
 """
     GaussianModel2(fwhm::Float64, x::AbstractArray)
@@ -50,6 +53,7 @@ function fitSpectralLawAndProfile(
       lens_dy_lower ::Int = LENS_DY_LOWER,
       lens_dy_upper ::Int = LENS_DY_UPPER,
       profile_order ::Int = 2,
+      profile_cλs ::Vector{Float64} = PROFILE_CλS,
       valid_lenslets ::BitVector = trues(nlens)
 )
     size(lasers_data) == size(lasers_weights) == (2048,2048) || throw(ArgumentError)
@@ -63,6 +67,7 @@ function fitSpectralLawAndProfile(
     lens_dy_lower ≥ 0                                        || throw(ArgumentError)
     lens_dy_upper ≥ 0                                        || throw(ArgumentError)
     profile_order ≥ 1                                        || throw(ArgumentError)
+    length(profile_cλs) == profile_order + 1                 || throw(ArgumentError)
     size(valid_lenslets) == (nlens,)                         || throw(ArgumentError)
 
     lens_width  = lens_dx_lower + 1 + lens_dx_upper
@@ -93,7 +98,7 @@ function fitSpectralLawAndProfile(
 
         ((bbox.xmin ≥ 1) & (bbox.xmax ≤ 2048) & (bbox.ymin ≥ 1) & (bbox.ymax ≤ 2048)) || continue
 
-        lenslets_models[i] = LensletModel(bbox, λref, nλ-1, profile_order);
+        lenslets_models[i] = LensletModel(bbox, λref, DISP_ORDER, profile_order);
 
         # Fit Dispersion
 
@@ -125,7 +130,7 @@ function fitSpectralLawAndProfile(
         
         lamp_data_view = view(lamp_data, bbox)
         lamp_weights_view = view(lamp_weights, bbox)
-        fitvars = [2.3; 2.5; 2.9; lenslets_models[i].disp_model.cx[1]; 0; 0]
+        fitvars = [profile_cλs... ; lenslets_models[i].disp_model.cx[1]; 0; 0]
         profile_lkl = Profile_LKL(bbox, lenslets_models[i].profile_model,
                                   lamp_data_view, lamp_weights_view, pixλ)
         try

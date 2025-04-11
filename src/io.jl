@@ -183,8 +183,8 @@ function compar(
                     eq = false
                     errprint += 1
                 end
-                if !isapprox(profileA.cy[j], profileB.cy[j]; rtol=0.05, atol=2)
-                    @warn "different profile cy lens $i coeff $j ($(profileA.cy[j]) != $(profileB.cy[j]))"
+                if !isapprox(profileA.cx[j], profileB.cx[j]; rtol=0.05, atol=2)
+                    @warn "different profile cx lens $i coeff $j ($(profileA.cx[j]) != $(profileB.cx[j]))"
                     eq = false
                     errprint += 1
                 end

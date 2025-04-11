@@ -2,41 +2,42 @@ mutable struct ProfileModel
     λ0::Float64   # reference wavelength
     order::Int  # order of the polynomial
     cλ::Vector{Float64} # coefficients of the polynomial along the wavelength axis
-    cy::Vector{Float64} # coefficients of the polynomial along the y axis
-    function ProfileModel(λ0,order,cλ,cy)
+    cx::Vector{Float64} # coefficients of the polynomial along the x axis
+    function ProfileModel(λ0,order,cλ,cx)
         order ≥ 0               || throw(ArgumentError)
         length(cλ) == (order+1) || throw(ArgumentError)
-        length(cy) == (order+1) || throw(ArgumentError)
-        new(λ0, order, cλ, cy)
+        length(cx) == (order+1) || throw(ArgumentError)
+        new(λ0, order, cλ, cx)
     end
 end
 
 function ProfileModel(λ0::Float64, order::Int)
     cλ = zeros(order+1)
-    cy = zeros(order+1)
+    cx = zeros(order+1)
     cλ[1] = 1
-    cy[1] = 1
-    ProfileModel(λ0, order, cλ, cy)
+    cx[1] = 1
+    ProfileModel(λ0, order, cλ, cx)
 end
 
 function ProfileModel(λ0::Float64, coefs::Vector{Float64})
     order = Int(length(coefs) / 2) - 1
     cλ = coefs[1 : (order+1)]
-    cy = coefs[(order+2) : end]
-    ProfileModel(λ0, order, cλ, cy)
+    cx = coefs[(order+2) : end]
+    ProfileModel(λ0, order, cλ, cx)
 end
 
-function (self::ProfileModel)(λ::Float64, x::Int) ::NTuple{2,Float64}
+function (self::ProfileModel)(λ::Float64, x::Int) ::NTuple{2,Float64} # [?, pix]
     λpo = ((λ-self.λ0)/self.λ0).^(1:self.order)
     w = self.cλ[1] + sum(self.cλ[2:end] .* λpo)
-    y = self.cy[1] + sum(self.cy[2:end] .* λpo)
-    return (w, (y - x)^2)
+    gaussian_cx = self.cx[1] + sum(self.cx[2:end] .* λpo) # [pix coord]
+    dist_to_gaussian_cx = (gaussian_cx - x)^2             # [pix]
+    return (w, dist_to_gaussian_cx)
 end
 
 function updateProfileModel!(self::ProfileModel, coefs::Vector{Float64}) ::Nothing
     length(coefs) == 2 * (self.order + 1) || throw(ArgumentError)
     self.cλ = coefs[1 : (self.order+1)]
-    self.cy = coefs[(self.order+2) : end]
+    self.cx = coefs[(self.order+2) : end]
     nothing
 end
 
@@ -68,7 +69,8 @@ end
 
 function (self::Profile_LKL)(coefs::Vector{Float64}) ::Float64
     updateProfileModel!(self.profile_model, coefs)
-    p = @. GaussianModel2(self.profile_model(self.λMap,($(axes(self.bbox,1)))))
+    lens_rx = axes(self.bbox, 1)
+    p = @. GaussianModel2(self.profile_model(self.λMap, $lens_rx))
     profile = p ./ sum(p; dims=1)
     amp = Zygote.@ignore updateAmplitudeAndBackground!(profile, self.data, self.weights)
     Zygote.@ignore self.amplitude .= amp[:]
