@@ -1,33 +1,33 @@
 mutable struct ProfileModel
-    λ0::Float64   # reference wavelength
+    λref::Float64   # reference wavelength
     order::Int  # order of the polynomial
     cλ::Vector{Float64} # coefficients of the polynomial along the wavelength axis
     cx::Vector{Float64} # coefficients of the polynomial along the x axis
-    function ProfileModel(λ0,order,cλ,cx)
+    function ProfileModel(λref,order,cλ,cx)
         order ≥ 0               || throw(ArgumentError)
         length(cλ) == (order+1) || throw(ArgumentError)
         length(cx) == (order+1) || throw(ArgumentError)
-        new(λ0, order, cλ, cx)
+        new(λref, order, cλ, cx)
     end
 end
 
-function ProfileModel(λ0::Float64, order::Int)
+function ProfileModel(λref::Float64, order::Int)
     cλ = zeros(order+1)
     cx = zeros(order+1)
     cλ[1] = 1
     cx[1] = 1
-    ProfileModel(λ0, order, cλ, cx)
+    ProfileModel(λref, order, cλ, cx)
 end
 
-function ProfileModel(λ0::Float64, coefs::Vector{Float64})
+function ProfileModel(λref::Float64, coefs::Vector{Float64})
     order = Int(length(coefs) / 2) - 1
     cλ = coefs[1 : (order+1)]
     cx = coefs[(order+2) : end]
-    ProfileModel(λ0, order, cλ, cx)
+    ProfileModel(λref, order, cλ, cx)
 end
 
 function (self::ProfileModel)(λ::Float64, x::Int) ::NTuple{2,Float64} # [?, pix]
-    λpo = ((λ-self.λ0)/self.λ0).^(1:self.order)
+    λpo = ((λ-self.λref)/self.λref).^(1:self.order)
     w = self.cλ[1] + sum(self.cλ[2:end] .* λpo)
     gaussian_cx = self.cx[1] + sum(self.cx[2:end] .* λpo) # [pix coord]
     dist_to_gaussian_cx = (gaussian_cx - x)^2             # [pix]

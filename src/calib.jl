@@ -54,7 +54,7 @@ function fitSpectralLawAndProfile(
       lens_dy_upper ::Int = LENS_DY_UPPER,
       profile_order ::Int = 2,
       profile_cλs ::Vector{Float64} = PROFILE_CλS,
-      valid_lenslets ::BitVector = trues(nlens)
+      valid_lenslets ::AbstractVector{Bool} = trues(nlens)
 )
     size(lasers_data) == size(lasers_weights) == (2048,2048) || throw(ArgumentError)
     size(lamp_data)   == size(lamp_weights)   == (2048,2048) || throw(ArgumentError)

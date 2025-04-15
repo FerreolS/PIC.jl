@@ -8,24 +8,24 @@ The dispersion model giving the position of a wavelength on the detector
 * `cy` is an array of coefficients of the polynomial along the y axis
 """
 mutable struct DispersionModel
-    λ0::Float64   # reference wavelength
+    λref::Float64   # reference wavelength
     order::Int64  # order of the polynomial
     cx::Vector{Float64} # coefficients of the polynomial along the x axis
     cy::Vector{Float64} # coefficients of the polynomial along the y axis
-    function DispersionModel(λ0, order, cx, cy)
+    function DispersionModel(λref, order, cx, cy)
         order ≥ 0               || throw(ArgumentError)
         length(cx) == (order+1) || throw(ArgumentError)
         length(cy) == (order+1) || throw(ArgumentError)
-        new(λ0, order, cx, cy)
+        new(λref, order, cx, cy)
     end
 end
 
-function DispersionModel(λ0::Float64, order::Int)
+function DispersionModel(λref::Float64, order::Int)
     cx = zeros(order+1)
     cx[1]=1
     cy = zeros(order+1)
     cy[1]=1
-    DispersionModel(λ0,order,cx,cy)
+    DispersionModel(λref,order,cx,cy)
 end
 
 """
@@ -41,7 +41,7 @@ D = DispersionModel(λ0, order, cx, cy);
 ```
 """
 function (self::DispersionModel)(λ::Float64)
-    λpo = ((λ - self.λ0)/self.λ0).^(1:self.order)
+    λpo = ((λ - self.λref)/self.λref).^(1:self.order)
     x = self.cx[1] + sum(self.cx[2:end] .* λpo)
     y = self.cy[1] + sum(self.cy[2:end] .* λpo)
     (x, y)
@@ -120,7 +120,7 @@ function (self::Dispersion_LKL)(xs::Vector{Float64}) ::Float64
         spots_buffer[:,:,index] = GaussianModel2.(fwhm[index], xys)
     end
     spots = copy(spots_buffer)
-    Zygote.@ignore self.amplitude .= updateAmplitude(self.nλ, spots, self.data, self.weights)
+    Zygote.@ignore self.amplitude .= compute_amplitude(spots, self.data, self.weights)
     sumspot = zeros(Float64, size(self.bbox))
     @inbounds for i in 1:self.nλ
         sumspot += self.amplitude[i] * spots[:,:,i]
@@ -129,30 +129,71 @@ function (self::Dispersion_LKL)(xs::Vector{Float64}) ::Float64
 end
 
  """
-        updateAmplitude(nλ,m,d,W)
+    compute_amplitude(spots::Array{Float64,3}, data::Matrix, weights::Matrix) -> Vector{Float64}
 
-    return the `nλ` amplitudes `a` according the the model `m`, the data and the precision `W`
-    such that
-    `a = argmin_a || a*m - D||^2_W`
-    where
-    * `nλ` : is the number of spots in the model
-    * `m`:  is the model composed of `nλ` images of spots
-    * `d`:  is the data
-    * `W`: is the precision (inverse variance) of the data
+From a gaussian laser spots model, and data and weights from the dispersion file, compute the
+amplitude for each gaussian laser spot, for a lenslet.
+
+# Arguments
+- `spots` is an `Array{Float64,3}` of size `(W,H,nλ`), containing the gaussian model for each
+  laser spot, each without background and with theoretical integral equal to `1`.
+- `data` is a matrix of size `(W,H)` containing dispersion data, for the lenslet bbox
+- `weights` is a matrix of size `(W,H)` containing dispersion data weights, for the lenslet bbox.
+  high weight means high confidence, weight zero is for bad pixels
+
+if we define:
+- `(W,H)` as the size of the bbox of the lenslet
+- `nλ` as the number of laser spots
+- `amp` as a vector of size `nλ` containing amplitudes for each gaussian laser spot
+- `model` as the sum of spots multiplied by their respective amplitude:
+  `model = sum(spots .* amp; dims=3)`
+
+the cost function (see `Dispersion_LKL`) is defined as:
+`cost = sum(weights .* (model .- data).^2)`
+
+if we define:
+- `G` a matrix of size `(W*H, nλ)` with `G[:,i] .= spots[:,:,i]`
+- `d` a vector of size `(W*H)` with `d[:] .= data[:,:]`
+- `w` a vector of size `(W*H)` with `w[:] .= weights[:,:]`
+- `W` a diagonal matrix of size `(W*H,W*H)` with `W[i,i] .= w[i]`
+
+we can rewrite `cost` as:
+`cost = (G⋅amp - d)ᵀ ⋅ W ⋅ (G⋅amp - d)`
+
+we want to find the `amp` value that minimizes `cost`. So we derive `cost` by vector `amp`,
+and look at the expression when the derived `cost` equals zero.
+
+First we rewrite `cost`:
+`cost = (G⋅amp)ᵀ⋅W⋅(G⋅amp) + (dᵀ⋅W⋅d) - 2⋅dᵀ⋅W⋅G⋅amp`
+
+we derive by vector `amp`:
+`∂cost/∂amp = (2⋅Gᵀ⋅W⋅G⋅amp) - (2⋅dᵀ⋅W⋅G)`
+
+when this equals zero, we have an expression for `amp`:
+`(2⋅Gᵀ⋅W⋅G⋅amp) - (2⋅dᵀ⋅W⋅G) = 0`
+`amp = (Gᵀ⋅W⋅G)⁻¹ ⋅ (dᵀ⋅W⋅G)`
+
+finally we define:
+- `A = (Gᵀ⋅W⋅G)`, a matrix of size `(nλ,nλ)`
+- `b = (dᵀ⋅W⋅G)`, a vector of size `(nλ)`
+We compute `A` and `b` in the function, inverse `A`, then we have a value for `amp`.
 """
-function updateAmplitude(
-    nλ::Int, spots::AbstractArray{Float64,3}, data::D, weights::W
-) ::Vector{Float64} where {D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
+function compute_amplitude(
+    spots::AbstractArray{Float64,3}, data::AbstractMatrix, weights::AbstractMatrix
+) ::Vector{Float64}
+
+    size(data) == size(weights) == size(spots)[1:2] || throw(ArgumentError)
+    
+    nλ = size(spots,3)
     A = @MMatrix zeros(Float64,nλ,nλ)
     b = @MVector zeros(Float64,nλ)
-    spots_buffer = similar(spots)
+
     @inbounds for i in 1:nλ
-        spots_buffer[:,:,i] .= spots[:,:,i] .* weights
-        b[i] = sum(spots_buffer[:,:,i] .* data)
-        A[i,i] = sum(spots_buffer[:,:,i] .* spots[:,:,i])
-        for j in 1:(i-1)
-            A[j,i] = A[i,j] = sum(spots_buffer[:,:,i] .* spots[:,:,j])
+        for j in 1:i
+            A[i,j] = A[j,i] = sum(spots[:,:,i] .* weights .* spots[:,:,j])
         end
+        b[i] = sum(data .* weights .* spots[:,:,i])
     end
-    return inv(A) * b
+    
+    amp = inv(A) * b
 end
