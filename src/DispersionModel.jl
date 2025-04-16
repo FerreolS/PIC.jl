@@ -1,31 +1,31 @@
 """
-    DispersionModel(λ0::Float64,order::Int32,cx::Array{Float64,1},cy::Array{Float64,1})
+    DispersionModel(λ0::Float64,order::Int32,cxs::Array{Float64,1},cys::Array{Float64,1})
 
 The dispersion model giving the position of a wavelength on the detector
 * `λ0` is the reference wavelength
 * `order` is the order of the polynomials
-* `cx` is an array of coefficients of the polynomial along the x axis
-* `cy` is an array of coefficients of the polynomial along the y axis
+* `cxs` is an array of coefficients of the polynomial along the x axis
+* `cys` is an array of coefficients of the polynomial along the y axis
 """
 mutable struct DispersionModel
     λref::Float64   # reference wavelength
     order::Int64  # order of the polynomial
-    cx::Vector{Float64} # coefficients of the polynomial along the x axis
-    cy::Vector{Float64} # coefficients of the polynomial along the y axis
-    function DispersionModel(λref, order, cx, cy)
+    cxs::Vector{Float64} # coefficients of the polynomial along the x axis
+    cys::Vector{Float64} # coefficients of the polynomial along the y axis
+    function DispersionModel(λref, order, cxs, cys)
         order ≥ 0               || throw(ArgumentError)
-        length(cx) == (order+1) || throw(ArgumentError)
-        length(cy) == (order+1) || throw(ArgumentError)
-        new(λref, order, cx, cy)
+        length(cxs) == (order+1) || throw(ArgumentError)
+        length(cys) == (order+1) || throw(ArgumentError)
+        new(λref, order, cxs, cys)
     end
 end
 
 function DispersionModel(λref::Float64, order::Int)
-    cx = zeros(order+1)
-    cx[1]=1
-    cy = zeros(order+1)
-    cy[1]=1
-    DispersionModel(λref,order,cx,cy)
+    cxs = zeros(order+1)
+    cxs[1]=1
+    cys = zeros(order+1)
+    cys[1]=1
+    DispersionModel(λref,order,cxs,cys)
 end
 
 """
@@ -36,31 +36,33 @@ according to the dispersion law `DispersionModel`.
 
 ### Example
 ```
-D = DispersionModel(λ0, order, cx, cy);
+D = DispersionModel(λ0, order, cxs, cys);
 (x,y) = D(λ)
 ```
 """
 function (self::DispersionModel)(λ::Float64)
     λpo = ((λ - self.λref)/self.λref).^(1:self.order)
-    x = self.cx[1] + sum(self.cx[2:end] .* λpo)
-    y = self.cy[1] + sum(self.cy[2:end] .* λpo)
+    x = self.cxs[1] + sum(self.cxs[2:end] .* λpo)
+    y = self.cys[1] + sum(self.cys[2:end] .* λpo)
     (x, y)
 end
 
 
 """
-    updateDispersionModel!(self::DispersionModel, cxs::Vector{Float64}, cys::Vector{Float64}) -> Nothing
+    updateDispersionModel!(self::DispersionModel, cxss::Vector{Float64}, cyss::Vector{Float64}) -> Nothing
 
 Update the coefficients  of the DispersionModel .
 * `self`: DispersionModel object
 * `cxs` : vector containing the X polynomial coefficients
 * `cys` : vector containing the X polynomial coefficients
 """
-function updateDispersionModel!(self::DispersionModel, cxs::Vector{Float64}, cys::Vector{Float64}) ::Nothing
+function updateDispersionModel!(
+    self::DispersionModel, cxs::Vector{Float64}, cys::Vector{Float64}
+) ::Nothing
     length(cxs) == (self.order+1) || throw(ArgumentError)
     length(cys) == (self.order+1) || throw(ArgumentError)
-    self.cx = cxs
-    self.cy = cys
+    self.cxs = cxs
+    self.cys = cys
     nothing
 end
 
@@ -96,7 +98,8 @@ struct Dispersion_LKL{D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
 end
 
 function Dispersion_LKL(
-    bbox::BoundingBox{Int}, disp_model::DispersionModel, lasers_λs::Vector{Float64}, data::D, weights::W
+    bbox::BoundingBox{Int}, disp_model::DispersionModel, lasers_λs::Vector{Float64},
+    data::D, weights::W
 ) where {D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
     nλ = length(lasers_λs)
     spots = zeros(Float64, size(bbox)..., nλ)
@@ -104,11 +107,30 @@ function Dispersion_LKL(
     Dispersion_LKL{D,W}(nλ, bbox, disp_model, lasers_λs, data, weights, spots, amplitude)
 end
 
-function (self::Dispersion_LKL)(xs::Vector{Float64}) ::Float64
+function encode_disp_lkl_fitvars(
+    fwhm::Vector{Float64}, cxs::Vector{Float64}, cys::Vector{Float64}
+) ::Vector{Float64}
+    length(cxs) == length(cys) || throw(ArgumentError)
+    fitvars = Float64[]
+    append!(fitvars, fwhm)
+    for i in 1:length(cxs)
+        push!(fitvars, cxs[i])
+        push!(fitvars, cys[i])
+    end
+    fitvars
+end
 
-    fwhm = xs[1:self.nλ]
-    cxs = xs[ (self.nλ+1) : 2 : (end-1) ]
-    cys = xs[ (self.nλ+2) : 2 :  end    ]
+function decode_disp_lkl_fitvars(nλ::Int, fitvars::Vector{Float64}) ::NTuple{3,Vector{Float64}}
+    fwhm = fitvars[1:nλ]
+    cxs  = fitvars[ (nλ+1) : 2 : (end-1) ]
+    cys  = fitvars[ (nλ+2) : 2 :  end    ]
+    (fwhm, cxs, cys)
+end
+
+function (self::Dispersion_LKL)(fitvars::Vector{Float64}) ::Float64
+
+    (fwhm, cxs, cys) = decode_disp_lkl_fitvars(self.nλ, fitvars)
+
     updateDispersionModel!(self.disp_model, cxs, cys)
     
     (xs,ys) = axes(self.bbox) # extracting bounding box range

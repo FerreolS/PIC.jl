@@ -1,43 +1,46 @@
 mutable struct ProfileModel
     λref::Float64   # reference wavelength
     order::Int  # order of the polynomial
-    cλ::Vector{Float64} # coefficients of the polynomial along the wavelength axis
-    cx::Vector{Float64} # coefficients of the polynomial along the x axis
-    function ProfileModel(λref,order,cλ,cx)
+    cλs::Vector{Float64} # coefficients of the polynomial along the wavelength axis
+    cxs::Vector{Float64} # coefficients of the polynomial along the x axis
+    function ProfileModel(λref,order,cλs,cxs)
         order ≥ 0               || throw(ArgumentError)
-        length(cλ) == (order+1) || throw(ArgumentError)
-        length(cx) == (order+1) || throw(ArgumentError)
-        new(λref, order, cλ, cx)
+        length(cλs) == (order+1) || throw(ArgumentError)
+        length(cxs) == (order+1) || throw(ArgumentError)
+        new(λref, order, cλs, cxs)
     end
 end
 
 function ProfileModel(λref::Float64, order::Int)
-    cλ = zeros(order+1)
-    cx = zeros(order+1)
-    cλ[1] = 1
-    cx[1] = 1
-    ProfileModel(λref, order, cλ, cx)
+    cλs = zeros(order+1)
+    cxs = zeros(order+1)
+    cλs[1] = 1
+    cxs[1] = 1
+    ProfileModel(λref, order, cλs, cxs)
 end
 
 function ProfileModel(λref::Float64, coefs::Vector{Float64})
     order = Int(length(coefs) / 2) - 1
-    cλ = coefs[1 : (order+1)]
-    cx = coefs[(order+2) : end]
-    ProfileModel(λref, order, cλ, cx)
+    cλs = coefs[1 : (order+1)]
+    cxs = coefs[(order+2) : end]
+    ProfileModel(λref, order, cλs, cxs)
 end
 
 function (self::ProfileModel)(λ::Float64, x::Int) ::NTuple{2,Float64} # [?, pix]
     λpo = ((λ-self.λref)/self.λref).^(1:self.order)
-    w = self.cλ[1] + sum(self.cλ[2:end] .* λpo)
-    gaussian_cx = self.cx[1] + sum(self.cx[2:end] .* λpo) # [pix coord]
-    dist_to_gaussian_cx = (gaussian_cx - x)^2             # [pix]
-    return (w, dist_to_gaussian_cx)
+    w = self.cλs[1] + sum(self.cλs[2:end] .* λpo)
+    gaussian_cxs = self.cxs[1] + sum(self.cxs[2:end] .* λpo) # [pix coord]
+    dist_to_gaussian_cxs = (gaussian_cxs - x)^2             # [pix]
+    return (w, dist_to_gaussian_cxs)
 end
 
-function updateProfileModel!(self::ProfileModel, coefs::Vector{Float64}) ::Nothing
-    length(coefs) == 2 * (self.order + 1) || throw(ArgumentError)
-    self.cλ = coefs[1 : (self.order+1)]
-    self.cx = coefs[(self.order+2) : end]
+function updateProfileModel!(
+    self::ProfileModel, cλs::Vector{Float64}, cxs::Vector{Float64}
+) ::Nothing
+    length(cλs) == (self.order+1) || throw(ArgumentError)
+    length(cxs) == (self.order+1) || throw(ArgumentError)
+    self.cλs = cλs
+    self.cxs = cxs
     nothing
 end
 
@@ -46,7 +49,7 @@ struct Profile_LKL{D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
     profile_model::ProfileModel
     data::D
     weights::W
-    λMap::Matrix{Float64}
+    λMap::AbstractMatrix{Float64}
     amplitude::Vector{Float64}
     function Profile_LKL{D,W}(
         bbox, profile_model, data, weights, λMap, amplitude
@@ -61,14 +64,26 @@ end
 
 function Profile_LKL(
     bbox::BoundingBox{Int}, profile_model::ProfileModel,
-    data::D, weight::W, λMap::Matrix{Float64}
+    data::D, weight::W, λMap::AbstractMatrix{Float64}
 ) where {D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
     amplitude = zeros(Float64, size(data,2)+1)
     Profile_LKL{D,W}(bbox, profile_model, data, weight, λMap, amplitude)
 end
 
-function (self::Profile_LKL)(coefs::Vector{Float64}) ::Float64
-    updateProfileModel!(self.profile_model, coefs)
+function encode_profile_lkl_fitvars(cλs::Vector{Float64}, cxs::Vector{Float64}) ::Vector{Float64}
+    fitvars = [ cλs ; cxs ]
+end
+
+function decode_profile_lkl_fitvars(fitvars::Vector{Float64}) ::NTuple{2,Vector{Float64}}
+    half = Int(length(fitvars)/2)
+    cλs = fitvars[1:half]
+    cxs = fitvars[half+1:end]
+    (cλs,cxs)
+end
+
+function (self::Profile_LKL)(fitvars::Vector{Float64}) ::Float64
+    (cλs,cxs) = decode_profile_lkl_fitvars(fitvars)
+    updateProfileModel!(self.profile_model, cλs, cxs)
     lens_rx = axes(self.bbox, 1)
     p = @. GaussianModel2(self.profile_model(self.λMap, $lens_rx))
     profile = p ./ sum(p; dims=1)

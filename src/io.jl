@@ -6,7 +6,7 @@ function exporte(filepath, lenslettab, laserAmplitude, lampAmplitude, laserfwhm,
     for i in 1:nlens
         if isassigned(lenslettab, i)
             dmodelorder = lenslettab[i].disp_model.order
-            profileorder = lenslettab[i].profile.order
+            profileorder = lenslettab[i].profile_model.order
             break
         end
     end
@@ -19,14 +19,14 @@ function exporte(filepath, lenslettab, laserAmplitude, lampAmplitude, laserfwhm,
             lens = lenslettab[i]
             bboxtab[:,:,i] .= [lens.bbox.xmin; lens.bbox.xmax;; lens.bbox.ymin; lens.bbox.ymax]
             dmodel = lens.disp_model
-            dmodeltab[:,1,i] .= [ dmodel.λ0; dmodel.order ]
+            dmodeltab[:,1,i] .= [ dmodel.λref; dmodel.order ]
             for j in 1:(dmodel.order+1)
-                dmodeltab[:,j+1,i] .= [ dmodel.cx[j] ; dmodel.cy[j] ]
+                dmodeltab[:,j+1,i] .= [ dmodel.cxs[j] ; dmodel.cys[j] ]
             end            
-            profile = lens.profile
-            profiletab[:,1,i] .= [ profile.λ0; profile.order ]
+            profile = lens.profile_model
+            profiletab[:,1,i] .= [ profile.λref; profile.order ]
             for j in 1:(profile.order+1)
-                profiletab[:,j+1,i] .= [ profile.cλ[j] ; profile.cy[j] ]
+                profiletab[:,j+1,i] .= [ profile.cλs[j] ; profile.cxs[j] ]
             end
         else
             bboxtab[:,:,i] .= NaN
@@ -102,7 +102,7 @@ function compar(
                 bboxA = lensA.bbox
                 bboxB = lensB.bbox
                 if bboxA != bboxB
-                    @warn "different bbox λ0 lens $i"
+                    @warn "different bbox λref lens $i"
                    eq = false
                    
                 end
@@ -127,8 +127,8 @@ function compar(
         if isassigned(lenslettabA, i) & isassigned(lenslettabB, i)
             dmodelA = lenslettabA[i].disp_model
             dmodelB = lenslettabB[i].disp_model
-            if !isapprox(dmodelA.λ0, dmodelB.λ0)
-                @warn "different dmodel λ0 lens $i"
+            if !isapprox(dmodelA.λref, dmodelB.λref)
+                @warn "different dmodel λref lens $i"
                 eq = false
                 errprint += 1
             end
@@ -138,13 +138,13 @@ function compar(
                 errprint += 1
             end
             for j in 1:(dmodelA.order+1)
-                if !isapprox(dmodelA.cx[j], dmodelB.cx[j]; rtol=0.05, atol=2)
-                    @warn "different dmodel cx lens $i coeff $j ($(dmodelA.cx[j]) != $(dmodelB.cx[j]))"
+                if !isapprox(dmodelA.cxs[j], dmodelB.cxs[j]; rtol=0.05, atol=2)
+                    @warn "different dmodel cxs lens $i coeff $j ($(dmodelA.cxs[j]) != $(dmodelB.cxs[j]))"
                     eq = false
                     errprint += 1
                 end
-                if !isapprox(dmodelA.cy[j], dmodelB.cy[j]; rtol=0.05, atol=2)
-                    @warn "different dmodel cy lens $i coeff $j ($(dmodelA.cy[j]) != $(dmodelB.cy[j]))"
+                if !isapprox(dmodelA.cys[j], dmodelB.cys[j]; rtol=0.05, atol=2)
+                    @warn "different dmodel cys lens $i coeff $j ($(dmodelA.cys[j]) != $(dmodelB.cys[j]))"
                     eq = false
                     errprint += 1
                 end
@@ -165,8 +165,8 @@ function compar(
         if isassigned(lenslettabA, i) & isassigned(lenslettabB, i)
             profileA = lenslettabA[i].profile_model
             profileB = lenslettabB[i].profile_model
-            if !isapprox(profileA.λ0, profileB.λ0)
-                @warn "different profile λ0 lens $i"
+            if !isapprox(profileA.λref, profileB.λref)
+                @warn "different profile λref lens $i"
                 eq = false
                 errprint += 1
                 continue
@@ -178,13 +178,13 @@ function compar(
                 continue
             end
             for j in 1:(profileA.order+1)
-                if !isapprox(profileA.cλ[j], profileB.cλ[j]; rtol=0.05, atol=2)
-                    @warn "different profile cλ lens $i coeff $j ($(profileA.cλ[j]) != $(profileB.cλ[j]))"
+                if !isapprox(profileA.cλs[j], profileB.cλs[j]; rtol=0.05, atol=2)
+                    @warn "different profile cλs lens $i coeff $j ($(profileA.cλs[j]) != $(profileB.cλs[j]))"
                     eq = false
                     errprint += 1
                 end
-                if !isapprox(profileA.cx[j], profileB.cx[j]; rtol=0.05, atol=2)
-                    @warn "different profile cx lens $i coeff $j ($(profileA.cx[j]) != $(profileB.cx[j]))"
+                if !isapprox(profileA.cxs[j], profileB.cxs[j]; rtol=0.05, atol=2)
+                    @warn "different profile cxs lens $i coeff $j ($(profileA.cxs[j]) != $(profileB.cxs[j]))"
                     eq = false
                     errprint += 1
                 end
@@ -232,7 +232,7 @@ function compar(
         for i in 1:nlens
             if isassigned(lenslettabA, i) & isassigned(lenslettabB, i)
                 for r in 1:nrows_lampAmplitude
-                    if !isapprox(lampAmplitudeA[r,i], lampAmplitudeB[r,i]; atol=1, rtol=0.01)
+                    if !isapprox(lampAmplitudeA[r,i], lampAmplitudeB[r,i]; atol=1, rtol=0.01, nans=true)
                         @warn "lampAmplitude lens $i row $r ($(lampAmplitudeA[r,i]) != $(lampAmplitudeB[r,i]))"
                         eq = false
                         errprint += 1
@@ -289,7 +289,7 @@ function compar(
     if (2048,2048) == size(laserdistA) == size(laserdistB)
         errprint = 0
         for y in 1:2048, x in 1:2048
-            if !isapprox(laserdistA[x,y], laserdistB[x,y]; atol=0.05)
+            if !isapprox(laserdistA[x,y], laserdistB[x,y]; atol=0.05, nans=true)
                 @warn "laserdist x $x y $y ($(laserdistA[x,y]) != $(laserdistB[x,y]))"
                 eq = false 
                 errprint +=1
@@ -306,7 +306,7 @@ function compar(
 
     if (2048,2048) == size(λMapA) == size(λMapB)
         for y in 1:2048, x in 1:2048
-            if !isapprox(λMapA[x,y], λMapB[x,y]; atol=0.0001)
+            if !isapprox(λMapA[x,y], λMapB[x,y]; atol=0.0001, nans=true)
                 @warn "λMap x $x y $y ($(λMapA[x,y]) != $(λMapB[x,y]))"
                 eq = false 
             end
