@@ -11,7 +11,7 @@ const LENS_DX_UPPER = 2
 const LENS_DY_LOWER = 21
 const LENS_DY_UPPER = 18
 
-const DISPERSION_CXY0S_INIT_PATH = joinpath(dirname(pathof(PIC)), "dispersion_cxy0s.txt")
+const DISPERSION_CXY0S_INIT_PATH = joinpath(dirname(pathof(PIC)), "dispersion_cxy0s_init.txt")
 const DISPERSION_CXY0S = readdlm(DISPERSION_CXY0S_INIT_PATH, Float64)
 const DISPERSION_CX1_MEDIAN =  -0.6001811340726275
 const DISPERSION_CX2_MEDIAN =  -0.3187688427580339
@@ -37,10 +37,10 @@ end
 function GaussianModel2(t::NTuple{2,T}) ::T where {T<:Real} return GaussianModel2(t[1], t[2]) end
 
 function fitSpectralLawAndProfile(
-    lasers_data    ::Matrix{<:Real},
-    lasers_weights ::Matrix{<:Real},
-    lamp_data      ::Matrix{<:Real},
-    lamp_weights   ::Matrix{<:Real},
+    lasers_data    ::AbstractMatrix{<:Real},
+    lasers_weights ::AbstractMatrix{<:Real},
+    lamp_data      ::AbstractMatrix{<:Real},
+    lamp_weights   ::AbstractMatrix{<:Real},
     ; nλ ::Int,
       lasers_λs ::Vector{Float64},
       lasers_fwhms_init ::Vector{Float64},
@@ -67,7 +67,7 @@ function fitSpectralLawAndProfile(
     lens_dy_lower ≥ 0                                        || throw(ArgumentError)
     lens_dy_upper ≥ 0                                        || throw(ArgumentError)
     profile_order ≥ 1                                        || throw(ArgumentError)
-    length(profile_cλs_init) == profile_order + 1                 || throw(ArgumentError)
+    length(profile_cλs_init) == profile_order + 1            || throw(ArgumentError)
     size(valid_lenslets) == (nlens,)                         || throw(ArgumentError)
 
     lens_width  = lens_dx_lower + 1 + lens_dx_upper
@@ -76,11 +76,11 @@ function fitSpectralLawAndProfile(
     nrows_lamp_amplitudes = lens_height + 1 # 1 additional cell
     
     lenslets_models = Vector{LensletModel}(undef, nlens)
+    lasers_fwhms      = fill(NaN64, nλ, nlens)
     lasers_amplitudes = fill(NaN64, nλ, nlens)
-    lamp_amplitudes = fill(NaN64, nrows_lamp_amplitudes, nlens)
-    lasers_fwhms = fill(NaN64, nλ, nlens)
-    lasers_dists = fill(NaN64, 2048, 2048)
-    λmap = fill(NaN64, 2048, 2048)
+    lasers_dists      = fill(NaN64, 2048, 2048)
+    λmap              = fill(NaN64, 2048, 2048)
+    lamp_amplitudes   = fill(NaN64, nrows_lamp_amplitudes, nlens)
 
     p = Progress(nlens; showspeed=true)
 
@@ -108,15 +108,15 @@ function fitSpectralLawAndProfile(
         disp_lkl = Dispersion_LKL(bbox, lenslets_models[i].disp_model,
                                   lasers_λs, lens_lasers_data, lens_lasers_weights)
 
-        disp_cx_init = [ disp_cxy0s[i,1] ;
-                         DISPERSION_CX1_MEDIAN * (λref*1e6) ;
-                         DISPERSION_CX2_MEDIAN * (λref*1e6)^2 ]
+        disp_cxs_init = [ disp_cxy0s[i,1] ;
+                          DISPERSION_CX1_MEDIAN * (λref*1e6) ;
+                          DISPERSION_CX2_MEDIAN * (λref*1e6)^2 ]
 
-        disp_cy_init = [ disp_cxy0s[i,2] ;
-                         DISPERSION_CY1_MEDIAN * (λref*1e6) ;
-                         DISPERSION_CY2_MEDIAN * (λref*1e6)^2 ]
+        disp_cys_init = [ disp_cxy0s[i,2] ;
+                          DISPERSION_CY1_MEDIAN * (λref*1e6) ;
+                          DISPERSION_CY2_MEDIAN * (λref*1e6)^2 ]
 
-        fitvars = encode_disp_lkl_fitvars(lasers_fwhms_init, disp_cx_init, disp_cy_init)
+        fitvars = encode_disp_lkl_fitvars(lasers_fwhms_init, disp_cxs_init, disp_cys_init)
 
         try
             vmlmb!(disp_lkl, fitvars; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
@@ -124,10 +124,10 @@ function fitSpectralLawAndProfile(
             @debug "Error on lenslet $i" exception=(e,catch_backtrace())
             continue
         end
-        (fit_fwhm, fit_cxs, fit_cys) = decode_disp_lkl_fitvars(nλ, fitvars)
+        (fit_fwhm, fit_cxs, fit_cys) = decode_disp_lkl_fitvars(nλ, DISP_ORDER, fitvars)
         updateDispersionModel!(lenslets_models[i].disp_model, fit_cxs, fit_cys)
-        lasers_amplitudes[:,i] = disp_lkl.amplitude
         lasers_fwhms[:,i] .= fit_fwhm
+        lasers_amplitudes[:,i] = disp_lkl.amplitude
         
         compute_lasers_dists_and_λmap!(λrange, lenslets_models[i], lasers_dists, λmap)
 
@@ -160,7 +160,7 @@ function fitSpectralLawAndProfile(
     end
     ProgressMeter.finish!(p)
     
-    (lenslets_models, lasers_amplitudes, lamp_amplitudes, lasers_fwhms, lasers_dists, λmap)
+    (lenslets_models, lasers_fwhms, lasers_amplitudes, lasers_dists, λmap, lamp_amplitudes)
 end
 
 function compute_lasers_dists_and_λmap!(

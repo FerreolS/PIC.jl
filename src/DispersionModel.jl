@@ -88,11 +88,12 @@ struct Dispersion_LKL{D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
         nλ, bbox, disp_model, lasers_λs, data, weights, spots, amplitude
     ) where {D,W}
         length(lasers_λs) == nλ        || throw(ArgumentError)
-        size(data) == size(weights)    || throw(ArgumentError)
+        nλ > disp_model.order          || throw(ArgumentError)
+        size(data)       == size(bbox) || throw(ArgumentError)
+        size(weights)    == size(bbox) || throw(ArgumentError)
+        size(spots)[1:2] == size(bbox) || throw(ArgumentError)
         size(spots,3) == nλ            || throw(ArgumentError)
         length(amplitude) == nλ        || throw(ArgumentError)
-        nλ > disp_model.order          || throw(ArgumentError)
-        size(spots)[1:2] == size(bbox) || throw(ArgumentError)
         new{D,W}(nλ, bbox, disp_model, lasers_λs, data, weights, spots, amplitude)
     end
 end
@@ -120,7 +121,10 @@ function encode_disp_lkl_fitvars(
     fitvars
 end
 
-function decode_disp_lkl_fitvars(nλ::Int, fitvars::Vector{Float64}) ::NTuple{3,Vector{Float64}}
+function decode_disp_lkl_fitvars(
+    nλ::Int, order::Int, fitvars::Vector{Float64}
+) ::NTuple{3,Vector{Float64}}
+    length(fitvars) == (nλ + 2 * (order + 1)) || throw(ArgumentError)
     fwhm = fitvars[1:nλ]
     cxs  = fitvars[ (nλ+1) : 2 : (end-1) ]
     cys  = fitvars[ (nλ+2) : 2 :  end    ]
@@ -129,7 +133,7 @@ end
 
 function (self::Dispersion_LKL)(fitvars::Vector{Float64}) ::Float64
 
-    (fwhm, cxs, cys) = decode_disp_lkl_fitvars(self.nλ, fitvars)
+    (fwhm, cxs, cys) = decode_disp_lkl_fitvars(self.nλ, self.disp_model.order, fitvars)
 
     updateDispersionModel!(self.disp_model, cxs, cys)
     
@@ -139,13 +143,18 @@ function (self::Dispersion_LKL)(fitvars::Vector{Float64}) ::Float64
     @inbounds for (index,λ) in enumerate(self.lasers_λs)  # For all laser
         (mx, my) = self.disp_model(λ)  # center of the index-th Gaussian spot
         xys = ((xs .- mx).^2) .+ ((ys .- my).^2)'
+        GaussianModel2.(fwhm[index], xys)
         spots_buffer[:,:,index] = GaussianModel2.(fwhm[index], xys)
     end
     spots = copy(spots_buffer)
     Zygote.@ignore self.amplitude .= compute_amplitude(spots, self.data, self.weights)
     sumspot = zeros(Float64, size(self.bbox))
     @inbounds for i in 1:self.nλ
-        sumspot += self.amplitude[i] * spots[:,:,i]
+        if isnan(self.amplitude[i])
+            @debug "NaN amplitude"
+        else
+            sumspot += self.amplitude[i] * spots[:,:,i]
+        end
     end
     return sum(self.weights .* (self.data .- sumspot).^2)
 end
