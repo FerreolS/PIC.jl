@@ -1,12 +1,15 @@
-function exporte(filepath, lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap)
-    nlens = length(lenslettab)
+function exporte(filepath, t)
+
+    (lenslets_models, lasers_fwhms, lasers_amplitudes, lasers_dists, λmap, lamp_amplitudes) = t
+    
+    nlens = length(lenslets_models)
     
     dmodelorder = 0
     profileorder = 0
     for i in 1:nlens
-        if isassigned(lenslettab, i)
-            dmodelorder = lenslettab[i].disp_model.order
-            profileorder = lenslettab[i].profile_model.order
+        if isassigned(lenslets_models, i)
+            dmodelorder = lenslets_models[i].disp_model.order
+            profileorder = lenslets_models[i].profile_model.order
             break
         end
     end
@@ -15,8 +18,8 @@ function exporte(filepath, lenslettab, laserAmplitude, lampAmplitude, laserfwhm,
     dmodeltab = Array{Float64,3}(undef, 2,1+dmodelorder+1,nlens)
     profiletab = Array{Float64,3}(undef, 2,1+profileorder+1,nlens)
     for i in 1:nlens
-        if isassigned(lenslettab, i)
-            lens = lenslettab[i]
+        if isassigned(lenslets_models, i)
+            lens = lenslets_models[i]
             bboxtab[:,:,i] .= [lens.bbox.xmin; lens.bbox.xmax;; lens.bbox.ymin; lens.bbox.ymax]
             dmodel = lens.disp_model
             dmodeltab[:,1,i] .= [ dmodel.λref; dmodel.order ]
@@ -41,27 +44,27 @@ function exporte(filepath, lenslettab, laserAmplitude, lampAmplitude, laserfwhm,
         dmodeltab,
         FitsHeader("EXTNAME" => "LENSLET_PROFILE"),
         profiletab,
-        FitsHeader("EXTNAME" => "LASER_AMPLITUDE"),
-        laserAmplitude,
-        FitsHeader("EXTNAME" => "LAMP_AMPLITUDE"),
-        lampAmplitude,
         FitsHeader("EXTNAME" => "LASER_FWHM"),
         laserfwhm,
+        FitsHeader("EXTNAME" => "LASER_AMPLITUDE"),
+        laserAmplitude,
         FitsHeader("EXTNAME" => "LASER_DIST"),
-        laserdist,
+        lasers_dists,
         FitsHeader("EXTNAME" => "LAMBDA_MAP"),
-        λMap,
+        λmap,
+        FitsHeader("EXTNAME" => "LAMP_AMPLITUDE"),
+        lampAmplitude
     )
 end
 
 function importe(filepath)
     FitsFile(filepath) do fits
-        numberoflenslet = fits["LENSLET_BBOX"].data_size[3]
-        lenslettab = Array{LensletModel}(undef,numberoflenslet);
+        nlens = fits["LENSLET_BBOX"].data_size[3]
+        lenslets_models = Array{LensletModel}(undef,nlens);
         bboxtab = read(fits["LENSLET_BBOX"])
         dmodeltab = read(fits["LENSLET_DMODEL"])
         profiletab = read(fits["LENSLET_PROFILE"])
-        for i in 1:numberoflenslet
+        for i in 1:nlens
             bbox = BoundingBox(bboxtab[:,:,i]...)
             if all(isnan, bbox)
                 continue
@@ -70,34 +73,34 @@ function importe(filepath)
                                    dmodeltab[1,2:end,i], dmodeltab[2,2:end,i])
                 profile = ProfileModel(profiletab[1,1,i], Int(profiletab[2,1,i]),
                                        profiletab[1,2:end,i], profiletab[2,2:end,i])
-                lenslettab[i] = LensletModel(bbox, dmodel, profile)
+                lenslets_models[i] = LensletModel(bbox, dmodel, profile)
             end
         end
-        laserAmplitude = read(fits["LASER_AMPLITUDE"])
-        lampAmplitude = read(fits["LAMP_AMPLITUDE"])
-        laserfwhm = read(fits["LASER_FWHM"])
-        laserdist = read(fits["LASER_DIST"])
-        λMap = read(fits["LAMBDA_MAP"]);
-        (lenslettab, laserAmplitude, lampAmplitude, laserfwhm,laserdist, λMap);
+        lasers_fwhms = read(fits["LASER_FWHM"])
+        lasers_amplitudes = read(fits["LASER_AMPLITUDE"])
+        lasers_dists = read(fits["LASER_DIST"])
+        λmap = read(fits["LAMBDA_MAP"]);
+        lamp_amplitudes = read(fits["LAMP_AMPLITUDE"])
+        (lenslets_models, lasers_fwhms, lasers_amplitudes, lasers_dists, λmap, lamp_amplitudes)
     end
 end
 
 
 function compar(
-    (lenslettabA, laserAmplitudeA, lampAmplitudeA, laserfwhmA, laserdistA, λMapA),
-    (lenslettabB, laserAmplitudeB, lampAmplitudeB, laserfwhmB, laserdistB, λMapB))
+    (lenslets_modelsA, lasers_fwhmsA, lasers_amplitudesA, lasers_distsA, λmapA, lamp_amplitudesA),
+    (lenslets_modelsB, lasers_fwhmsB, lasers_amplitudesB, lasers_distsB, λmapB, lamp_amplitudesB))
 
     eq = true
 
-    nlens = size(lenslettabA,1)
-    nλ = size(laserAmplitudeA,1)
-    nrows_lampAmplitude = size(lampAmplitudeA,1)
+    nlens = size(lenslets_modelsA,1)
+    nλ = size(lasers_amplitudesA,1)
+    nrows_lampAmplitude = size(lamp_amplitudesA,1)
     
-    if (nlens,) == size(lenslettabA) == size(lenslettabB)
+    if (nlens,) == size(lenslets_modelsA) == size(lenslets_modelsB)
         for i in 1:nlens
-            if isassigned(lenslettabA, i) & isassigned(lenslettabB, i)
-                lensA = lenslettabA[i]
-                lensB = lenslettabB[i]
+            if isassigned(lenslets_modelsA, i) & isassigned(lenslets_modelsB, i)
+                lensA = lenslets_modelsA[i]
+                lensB = lenslets_modelsB[i]
                 
                 bboxA = lensA.bbox
                 bboxB = lensB.bbox
@@ -106,7 +109,7 @@ function compar(
                    eq = false
                    
                 end
-            elseif !isassigned(lenslettabA, i) & !isassigned(lenslettabB, i)
+            elseif !isassigned(lenslets_modelsA, i) & !isassigned(lenslets_modelsB, i)
                 # nothing to do
             else
                 @warn "lens $i is assigned in one and unassigned in another"
@@ -124,9 +127,9 @@ function compar(
             @warn "too many errors for dmodel, stopping searching them"
             break
         end
-        if isassigned(lenslettabA, i) & isassigned(lenslettabB, i)
-            dmodelA = lenslettabA[i].disp_model
-            dmodelB = lenslettabB[i].disp_model
+        if isassigned(lenslets_modelsA, i) & isassigned(lenslets_modelsB, i)
+            dmodelA = lenslets_modelsA[i].disp_model
+            dmodelB = lenslets_modelsB[i].disp_model
             if !isapprox(dmodelA.λref, dmodelB.λref)
                 @warn "different dmodel λref lens $i"
                 eq = false
@@ -149,7 +152,7 @@ function compar(
                     errprint += 1
                 end
             end
-        elseif !isassigned(lenslettabA, i) & !isassigned(lenslettabB, i)
+        elseif !isassigned(lenslets_modelsA, i) & !isassigned(lenslets_modelsB, i)
             # nothing to do
         else
             continue # already warned in previous tests
@@ -162,9 +165,9 @@ function compar(
             @warn "too many errors for profile, stopping searching them"
             break
         end
-        if isassigned(lenslettabA, i) & isassigned(lenslettabB, i)
-            profileA = lenslettabA[i].profile_model
-            profileB = lenslettabB[i].profile_model
+        if isassigned(lenslets_modelsA, i) & isassigned(lenslets_modelsB, i)
+            profileA = lenslets_modelsA[i].profile_model
+            profileB = lenslets_modelsB[i].profile_model
             if !isapprox(profileA.λref, profileB.λref)
                 @warn "different profile λref lens $i"
                 eq = false
@@ -189,20 +192,20 @@ function compar(
                     errprint += 1
                 end
             end
-        elseif !isassigned(lenslettabA, i) & !isassigned(lenslettabB, i)
+        elseif !isassigned(lenslets_modelsA, i) & !isassigned(lenslets_modelsB, i)
             # nothing to do
         else
             continue # already warned in previous tests
         end
     end
     
-    if (nλ,nlens) == size(laserAmplitudeA) == size(laserAmplitudeB)
+    if (nλ,nlens) == size(lasers_amplitudesA) == size(lasers_amplitudesB)
         errprint = 0
         for i in 1:nlens
-            if isassigned(lenslettabA, i) & isassigned(lenslettabB, i)
+            if isassigned(lenslets_modelsA, i) & isassigned(lenslets_modelsB, i)
                 for l in 1:nλ
-                    if !isapprox(laserAmplitudeA[l,i], laserAmplitudeB[l,i]; atol=2)
-                        @warn "laserAmplitude lens $i laser $l ($(laserAmplitudeA[l,i]) != $(laserAmplitudeB[l,i]))"
+                    if !isapprox(lasers_amplitudesA[l,i], lasers_amplitudesB[l,i]; atol=2)
+                        @warn "lasers_amplitudes lens $i laser $l ($(lasers_amplitudesA[l,i]) != $(lasers_amplitudesB[l,i]))"
                         eq = false
                         errprint += 1
                     end
@@ -210,7 +213,7 @@ function compar(
                         break
                     end
                 end
-            elseif !isassigned(lenslettabA, i) & !isassigned(lenslettabB, i)
+            elseif !isassigned(lenslets_modelsA, i) & !isassigned(lenslets_modelsB, i)
                 # nothing to do
             else
                 @warn "lens $i is assigned in one and unassigned in another"
@@ -218,22 +221,22 @@ function compar(
                 errprint += 1
             end
             if errprint >= 10
-                @warn "too many errors for laserAmplitude, stopping searching them"
+                @warn "too many errors for lasers_amplitudes, stopping searching them"
                 break
             end
         end
     else
-        @warn "different laserAmplitude sizes"
+        @warn "different lasers_amplitudes sizes"
         eq = false
     end
     
-    if (nrows_lampAmplitude,nlens) == size(lampAmplitudeA) == size(lampAmplitudeB)
+    if (nrows_lampAmplitude,nlens) == size(lamp_amplitudesA) == size(lamp_amplitudesB)
         errprint = 0
         for i in 1:nlens
-            if isassigned(lenslettabA, i) & isassigned(lenslettabB, i)
+            if isassigned(lenslets_modelsA, i) & isassigned(lenslets_modelsB, i)
                 for r in 1:nrows_lampAmplitude
-                    if !isapprox(lampAmplitudeA[r,i], lampAmplitudeB[r,i]; atol=1, rtol=0.01, nans=true)
-                        @warn "lampAmplitude lens $i row $r ($(lampAmplitudeA[r,i]) != $(lampAmplitudeB[r,i]))"
+                    if !isapprox(lamp_amplitudesA[r,i], lamp_amplitudesB[r,i]; atol=1, rtol=0.01, nans=true)
+                        @warn "lamp_amplitudes lens $i row $r ($(lamp_amplitudesA[r,i]) != $(lamp_amplitudesB[r,i]))"
                         eq = false
                         errprint += 1
                     end
@@ -241,7 +244,7 @@ function compar(
                         break
                     end
                 end
-            elseif !isassigned(lenslettabA, i) & !isassigned(lenslettabB, i)
+            elseif !isassigned(lenslets_modelsA, i) & !isassigned(lenslets_modelsB, i)
                 # nothing to do
             else
                 @warn "lens $i is assigned in one and unassigned in another"
@@ -249,27 +252,27 @@ function compar(
                 errprint += 1
             end
             if errprint >= 10
-                @warn "too many errors for lampAmplitude, stopping searching them"
+                @warn "too many errors for lamp_amplitudes, stopping searching them"
                 break
             end
         end
     else
-        @warn "different lampAmplitude sizes"
+        @warn "different lamp_amplitudes sizes"
         eq = false
     end
 
-    if (nλ,nlens) == size(laserfwhmA) == size(laserfwhmB)
+    if (nλ,nlens) == size(lasers_fwhmsA) == size(lasers_fwhmsB)
         errprint = 0
         for i in 1:nlens
-            if isassigned(lenslettabA, i) & isassigned(lenslettabB, i)
+            if isassigned(lenslets_modelsA, i) & isassigned(lenslets_modelsB, i)
                 for l in 1:nλ
-                    if !isapprox(laserfwhmA[l,i], laserfwhmB[l,i]; atol=0.05)
-                        @warn "laserfwhm lens $i laser $l ($(laserfwhmA[l,i]) != $(laserfwhmB[l,i]))"
+                    if !isapprox(lasers_fwhmsA[l,i], lasers_fwhmsB[l,i]; atol=0.05)
+                        @warn "lasers_fwhms lens $i laser $l ($(lasers_fwhmsA[l,i]) != $(lasers_fwhmsB[l,i]))"
                         eq = false 
                         errprint += 1
                     end
                 end
-            elseif !isassigned(lenslettabA, i) & !isassigned(lenslettabB, i)
+            elseif !isassigned(lenslets_modelsA, i) & !isassigned(lenslets_modelsB, i)
                 # nothing to do
             else
                 @warn "lens $i is assigned in one and unassigned in another"
@@ -277,42 +280,48 @@ function compar(
                 errprint += 1
             end
             if errprint >= 10
-                @warn "too many errors for laserfwhm, stopping searching them"
+                @warn "too many errors for lasers_fwhms, stopping searching them"
                 break
             end
         end
     else
-        @warn "different laserfwhm sizes"
+        @warn "different lasers_fwhms sizes"
         eq = false
     end
 
-    if (2048,2048) == size(laserdistA) == size(laserdistB)
+    if (2048,2048) == size(lasers_distsA) == size(lasers_distsB)
         errprint = 0
         for y in 1:2048, x in 1:2048
-            if !isapprox(laserdistA[x,y], laserdistB[x,y]; atol=0.05, nans=true)
-                @warn "laserdist x $x y $y ($(laserdistA[x,y]) != $(laserdistB[x,y]))"
+            if !isapprox(lasers_distsA[x,y], lasers_distsB[x,y]; atol=0.05, nans=true)
+                @warn "lasers_dists x $x y $y ($(lasers_distsA[x,y]) != $(lasers_distsB[x,y]))"
                 eq = false 
                 errprint +=1
             end
             if errprint >= 10
-                @warn "too many errors for laserdist, stopping searching them"
+                @warn "too many errors for lasers_dists, stopping searching them"
                 break
             end
         end
     else
-        @warn "incorrect laserdist sizes"
+        @warn "incorrect lasers_dists sizes"
         eq = false
     end
 
-    if (2048,2048) == size(λMapA) == size(λMapB)
+    if (2048,2048) == size(λmapA) == size(λmapB)
+        errprint = 0
         for y in 1:2048, x in 1:2048
-            if !isapprox(λMapA[x,y], λMapB[x,y]; atol=0.0001, nans=true)
-                @warn "λMap x $x y $y ($(λMapA[x,y]) != $(λMapB[x,y]))"
+            if !isapprox(λmapA[x,y], λmapB[x,y]; atol=0.0001, nans=true)
+                @warn "λmap x $x y $y ($(λmapA[x,y]) != $(λmapB[x,y]))"
                 eq = false 
+                errprint += 1
+            end
+            if errprint >= 10
+                @warn "too many errors for λmap, stopping searching them"
+                break
             end
         end
     else
-        @warn "incorrect λMap sizes"
+        @warn "incorrect λmap sizes"
         eq = false 
     end
 

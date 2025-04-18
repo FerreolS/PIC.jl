@@ -124,9 +124,13 @@ function fitSpectralLawAndProfile(
             @debug "Error on lenslet $i" exception=(e,catch_backtrace())
             continue
         end
+        # last step of vmlmb is not necessary the chosen step
+        # so we call again, to mutate fields to the chosen step values
+        disp_lkl(fitvars)
+
         (fit_fwhm, fit_cxs, fit_cys) = decode_disp_lkl_fitvars(nλ, DISP_ORDER, fitvars)
-        updateDispersionModel!(lenslets_models[i].disp_model, fit_cxs, fit_cys)
         lasers_fwhms[:,i] .= fit_fwhm
+        
         lasers_amplitudes[:,i] = disp_lkl.amplitude
         
         compute_lasers_dists_and_λmap!(λrange, lenslets_models[i], lasers_dists, λmap)
