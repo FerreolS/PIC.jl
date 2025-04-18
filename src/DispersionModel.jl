@@ -7,64 +7,51 @@ The dispersion model giving the position of a wavelength on the detector
 * `cxs` is an array of coefficients of the polynomial along the x axis
 * `cys` is an array of coefficients of the polynomial along the y axis
 """
-mutable struct DispersionModel
-    λref::Float64   # reference wavelength
+struct DispersionModel
+    nλ::Int
     order::Int64  # order of the polynomial
+    λref::Float64   # reference wavelength
     cxs::Vector{Float64} # coefficients of the polynomial along the x axis
     cys::Vector{Float64} # coefficients of the polynomial along the y axis
-    function DispersionModel(λref, order, cxs, cys)
-        order ≥ 0               || throw(ArgumentError)
+    fwhms::Vector{Float64}
+    amplitudes::Vector{Float64}
+    function DispersionModel(nλ, order, λref, cxs, cys, fwhms, amplitudes)
+        nλ ≥ 2                   || throw(ArgumentError)
+        order ≥ 1                || throw(ArgumentError)
         length(cxs) == (order+1) || throw(ArgumentError)
         length(cys) == (order+1) || throw(ArgumentError)
-        new(λref, order, cxs, cys)
+        length(fwhms) == nλ      || throw(ArgumentError)
+        length(amplitudes) == nλ || throw(ArgumentError)
+        new(nλ, order, λref, cxs, cys, fwhms, amplitudes)
     end
 end
 
-function DispersionModel(λref::Float64, order::Int)
-    cxs = zeros(order+1)
-    cxs[1]=1
-    cys = zeros(order+1)
-    cys[1]=1
-    DispersionModel(λref,order,cxs,cys)
+function DispersionModel(nλ::Int, order::Int, λref::Float64)
+    nλ ≥ 2    || throw(ArgumentError)
+    order ≥ 1 || throw(ArgumentError)
+    cxs = Vector{Float64}(undef, order+1)
+    cys = Vector{Float64}(undef, order+1)
+    fwhms = Vector{Float64}(undef, nλ)
+    amplitudes = Vector{Float64}(undef, nλ)
+    DispersionModel(nλ, order, λref, cxs, cys, fwhms, amplitudes)
 end
 
-"""
-    (self::DispersionModel)(λ::Float64)
-
-compute the position `(x,y)`  of the wavelength `λ`
-according to the dispersion law `DispersionModel`.
-
-### Example
-```
-D = DispersionModel(λ0, order, cxs, cys);
-(x,y) = D(λ)
-```
-"""
-function (self::DispersionModel)(λ::Float64)
-    λpo = ((λ - self.λref)/self.λref).^(1:self.order)
-    x = self.cxs[1] + sum(self.cxs[2:end] .* λpo)
-    y = self.cys[1] + sum(self.cys[2:end] .* λpo)
+function compute_λ_peak(
+    order::Int, λref::Float64, cxs::Vector{Float64}, cys::Vector{Float64}, λ::Float64
+) ::NTuple{2,Float64}
+    λpo = ((λ - λref)/λref).^(1:order)
+    x = cxs[1] + sum(cxs[2:end] .* λpo)
+    y = cys[1] + sum(cys[2:end] .* λpo)
     (x, y)
 end
 
-
-"""
-    updateDispersionModel!(self::DispersionModel, cxss::Vector{Float64}, cyss::Vector{Float64}) -> Nothing
-
-Update the coefficients  of the DispersionModel .
-* `self`: DispersionModel object
-* `cxs` : vector containing the X polynomial coefficients
-* `cys` : vector containing the X polynomial coefficients
-"""
-function updateDispersionModel!(
-    self::DispersionModel, cxs::Vector{Float64}, cys::Vector{Float64}
-) ::Nothing
-    length(cxs) == (self.order+1) || throw(ArgumentError)
-    length(cys) == (self.order+1) || throw(ArgumentError)
-    self.cxs = cxs
-    self.cys = cys
-    nothing
+function compute_λ_peak(disp_model::DispersionModel, λ::Float64) ::NTuple{2,Float64}
+    λpo = ((λ - disp_model.λref)/disp_model.λref).^(1:disp_model.order)
+    x = disp_model.cxs[1] + sum(disp_model.cxs[2:end] .* λpo)
+    y = disp_model.cys[1] + sum(disp_model.cys[2:end] .* λpo)
+    (x, y)
 end
+
 
 """
     Dispersion_LKL(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray,weight::AbstractArray)
@@ -83,9 +70,8 @@ struct Dispersion_LKL{D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
     data::D
     weights::W
     spots::Array{Float64,3}
-    amplitude::Vector{Float64}
     function Dispersion_LKL{D,W}(
-        nλ, bbox, disp_model, lasers_λs, data, weights, spots, amplitude
+        nλ, bbox, disp_model, lasers_λs, data, weights, spots
     ) where {D,W}
         length(lasers_λs) == nλ        || throw(ArgumentError)
         nλ > disp_model.order          || throw(ArgumentError)
@@ -93,8 +79,7 @@ struct Dispersion_LKL{D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
         size(weights)    == size(bbox) || throw(ArgumentError)
         size(spots)[1:2] == size(bbox) || throw(ArgumentError)
         size(spots,3) == nλ            || throw(ArgumentError)
-        length(amplitude) == nλ        || throw(ArgumentError)
-        new{D,W}(nλ, bbox, disp_model, lasers_λs, data, weights, spots, amplitude)
+        new{D,W}(nλ, bbox, disp_model, lasers_λs, data, weights, spots)
     end
 end
 
@@ -104,8 +89,7 @@ function Dispersion_LKL(
 ) where {D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
     nλ = length(lasers_λs)
     spots = zeros(Float64, size(bbox)..., nλ)
-    amplitude = zeros(Float64, nλ)
-    Dispersion_LKL{D,W}(nλ, bbox, disp_model, lasers_λs, data, weights, spots, amplitude)
+    Dispersion_LKL{D,W}(nλ, bbox, disp_model, lasers_λs, data, weights, spots)
 end
 
 function encode_disp_lkl_fitvars(
@@ -135,27 +119,33 @@ function (self::Dispersion_LKL)(fitvars::Vector{Float64}) ::Float64
 
     (fwhm, cxs, cys) = decode_disp_lkl_fitvars(self.nλ, self.disp_model.order, fitvars)
 
-    updateDispersionModel!(self.disp_model, cxs, cys)
-    
     (xs,ys) = axes(self.bbox) # extracting bounding box range
     
     spots_buffer = Zygote.Buffer(self.spots)
     @inbounds for (index,λ) in enumerate(self.lasers_λs)  # For all laser
-        (mx, my) = self.disp_model(λ)  # center of the index-th Gaussian spot
+#        (mx, my) = compute_λ_peak(self.disp_model, λ)  # center of the index-th Gaussian spot
+        (mx, my) = compute_λ_peak(self.disp_model.order, self.disp_model.λref, cxs, cys, λ)
         xys = ((xs .- mx).^2) .+ ((ys .- my).^2)'
-        GaussianModel2.(fwhm[index], xys)
         spots_buffer[:,:,index] = GaussianModel2.(fwhm[index], xys)
     end
     spots = copy(spots_buffer)
-    Zygote.@ignore self.amplitude .= compute_amplitude(spots, self.data, self.weights)
+    amplitudes = compute_amplitudes(spots, self.data, self.weights)
     sumspot = zeros(Float64, size(self.bbox))
     @inbounds for i in 1:self.nλ
-        if isnan(self.amplitude[i])
+        if isnan(amplitudes[i])
             @debug "NaN amplitude"
         else
-            sumspot += self.amplitude[i] * spots[:,:,i]
+            sumspot += amplitudes[i] * spots[:,:,i]
         end
     end
+    
+    Zygote.@ignore begin
+        self.disp_model.cxs .= cxs
+        self.disp_model.cys .= cys
+        self.disp_model.fwhms .= fwhm
+        self.disp_model.amplitudes .= amplitudes
+    end
+    
     return sum(self.weights .* (self.data .- sumspot).^2)
 end
 
@@ -166,7 +156,7 @@ From a gaussian laser spots model, and data and weights from the dispersion file
 amplitude for each gaussian laser spot, for a lenslet.
 
 # Arguments
-- `spots` is an `Array{Float64,3}` of size `(W,H,nλ`), containing the gaussian model for each
+- `spots` is an `Array{Float64,3}` of size `(W,H,nλ)`, containing the gaussian model for each
   laser spot, each without background and with theoretical integral equal to `1`.
 - `data` is a matrix of size `(W,H)` containing dispersion data, for the lenslet bbox
 - `weights` is a matrix of size `(W,H)` containing dispersion data weights, for the lenslet bbox.
@@ -209,22 +199,12 @@ finally we define:
 - `b = (dᵀ⋅W⋅G)`, a vector of size `(nλ)`
 We compute `A` and `b` in the function, inverse `A`, then we have a value for `amp`.
 """
-function compute_amplitude(
+function compute_amplitudes(
     spots::AbstractArray{Float64,3}, data::AbstractMatrix, weights::AbstractMatrix
 ) ::Vector{Float64}
-
-    size(data) == size(weights) == size(spots)[1:2] || throw(ArgumentError)
     
-    nλ = size(spots,3)
-    A = @MMatrix zeros(Float64,nλ,nλ)
-    b = @MVector zeros(Float64,nλ)
-
-    @inbounds for i in 1:nλ
-        for j in 1:i
-            A[i,j] = A[j,i] = sum(spots[:,:,i] .* weights .* spots[:,:,j])
-        end
-        b[i] = sum(data .* weights .* spots[:,:,i])
-    end
+    A = [ sum(spots[:,:,i] .* weights .* spots[:,:,j]) for i in 1:3, j in 1:3 ]
+    b = [ sum(data .* weights .* spots[:,:,i]) for i in 1:3 ]
     
     amp = inv(A) * b
 end
