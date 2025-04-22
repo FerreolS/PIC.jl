@@ -1,13 +1,13 @@
 """
-    DispersionModel(λ0::Float64,order::Int32,cxs::Array{Float64,1},cys::Array{Float64,1})
+    LasersModel(λ0::Float64,order::Int32,cxs::Array{Float64,1},cys::Array{Float64,1})
 
-The dispersion model giving the position of a wavelength on the detector
+The lasers model giving the position of a wavelength on the detector
 * `λ0` is the reference wavelength
 * `order` is the order of the polynomials
 * `cxs` is an array of coefficients of the polynomial along the x axis
 * `cys` is an array of coefficients of the polynomial along the y axis
 """
-struct DispersionModel
+struct LasersModel
     nλ::Int
     order::Int64  # order of the polynomial
     λref::Float64   # reference wavelength
@@ -15,7 +15,7 @@ struct DispersionModel
     cys::Vector{Float64} # coefficients of the polynomial along the y axis
     fwhms::Vector{Float64}
     amplitudes::Vector{Float64}
-    function DispersionModel(nλ, order, λref, cxs, cys, fwhms, amplitudes)
+    function LasersModel(nλ, order, λref, cxs, cys, fwhms, amplitudes)
         nλ ≥ 2                   || throw(ArgumentError)
         order ≥ 1                || throw(ArgumentError)
         length(cxs) == (order+1) || throw(ArgumentError)
@@ -26,14 +26,14 @@ struct DispersionModel
     end
 end
 
-function DispersionModel(nλ::Int, order::Int, λref::Float64)
+function LasersModel(nλ::Int, order::Int, λref::Float64)
     nλ ≥ 2    || throw(ArgumentError)
     order ≥ 1 || throw(ArgumentError)
     cxs = Vector{Float64}(undef, order+1)
     cys = Vector{Float64}(undef, order+1)
     fwhms = Vector{Float64}(undef, nλ)
     amplitudes = Vector{Float64}(undef, nλ)
-    DispersionModel(nλ, order, λref, cxs, cys, fwhms, amplitudes)
+    LasersModel(nλ, order, λref, cxs, cys, fwhms, amplitudes)
 end
 
 function compute_λ_peak(
@@ -45,16 +45,13 @@ function compute_λ_peak(
     (x, y)
 end
 
-function compute_λ_peak(disp_model::DispersionModel, λ::Float64) ::NTuple{2,Float64}
-    λpo = ((λ - disp_model.λref)/disp_model.λref).^(1:disp_model.order)
-    x = disp_model.cxs[1] + sum(disp_model.cxs[2:end] .* λpo)
-    y = disp_model.cys[1] + sum(disp_model.cys[2:end] .* λpo)
-    (x, y)
+function compute_λ_peak(lasers_model::LasersModel, λ::Float64) ::NTuple{2,Float64}
+    compute_λ_peak(lasers_model.order, lasers_model.λref, lasers_model.cxs, lasers_model.cys, λ)
 end
 
 
 """
-    Dispersion_LKL(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray,weight::AbstractArray)
+    Lasers_LKL(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray,weight::AbstractArray)
 
 Build the likelihood function for a given lenslet
 * `lmodel`: model of the lenslet
@@ -62,37 +59,37 @@ Build the likelihood function for a given lenslet
 * `data` : data
 * `weight`: precision (ie inverse variance) of the data
 """
-struct Dispersion_LKL{D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
+struct Lasers_LKL{D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
     nλ::Int
     bbox::BoundingBox{Int}
-    disp_model::DispersionModel
+    lasers_model::LasersModel
     lasers_λs::Vector{Float64}
     data::D
     weights::W
     spots::Array{Float64,3}
-    function Dispersion_LKL{D,W}(
-        nλ, bbox, disp_model, lasers_λs, data, weights, spots
+    function Lasers_LKL{D,W}(
+        nλ, bbox, lasers_model, lasers_λs, data, weights, spots
     ) where {D,W}
         length(lasers_λs) == nλ        || throw(ArgumentError)
-        nλ > disp_model.order          || throw(ArgumentError)
+        nλ > lasers_model.order          || throw(ArgumentError)
         size(data)       == size(bbox) || throw(ArgumentError)
         size(weights)    == size(bbox) || throw(ArgumentError)
         size(spots)[1:2] == size(bbox) || throw(ArgumentError)
         size(spots,3) == nλ            || throw(ArgumentError)
-        new{D,W}(nλ, bbox, disp_model, lasers_λs, data, weights, spots)
+        new{D,W}(nλ, bbox, lasers_model, lasers_λs, data, weights, spots)
     end
 end
 
-function Dispersion_LKL(
-    bbox::BoundingBox{Int}, disp_model::DispersionModel, lasers_λs::Vector{Float64},
+function Lasers_LKL(
+    bbox::BoundingBox{Int}, lasers_model::LasersModel, lasers_λs::Vector{Float64},
     data::D, weights::W
 ) where {D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
     nλ = length(lasers_λs)
     spots = zeros(Float64, size(bbox)..., nλ)
-    Dispersion_LKL{D,W}(nλ, bbox, disp_model, lasers_λs, data, weights, spots)
+    Lasers_LKL{D,W}(nλ, bbox, lasers_model, lasers_λs, data, weights, spots)
 end
 
-function encode_disp_lkl_fitvars(
+function encode_lasers_lkl_fitvars(
     fwhm::Vector{Float64}, cxs::Vector{Float64}, cys::Vector{Float64}
 ) ::Vector{Float64}
     length(cxs) == length(cys) || throw(ArgumentError)
@@ -105,7 +102,7 @@ function encode_disp_lkl_fitvars(
     fitvars
 end
 
-function decode_disp_lkl_fitvars(
+function decode_lasers_lkl_fitvars(
     nλ::Int, order::Int, fitvars::Vector{Float64}
 ) ::NTuple{3,Vector{Float64}}
     length(fitvars) == (nλ + 2 * (order + 1)) || throw(ArgumentError)
@@ -115,16 +112,16 @@ function decode_disp_lkl_fitvars(
     (fwhm, cxs, cys)
 end
 
-function (self::Dispersion_LKL)(fitvars::Vector{Float64}) ::Float64
+function (self::Lasers_LKL)(fitvars::Vector{Float64}) ::Float64
 
-    (fwhm, cxs, cys) = decode_disp_lkl_fitvars(self.nλ, self.disp_model.order, fitvars)
+    (fwhm, cxs, cys) = decode_lasers_lkl_fitvars(self.nλ, self.lasers_model.order, fitvars)
 
     (xs,ys) = axes(self.bbox) # extracting bounding box range
     
     spots_buffer = Zygote.Buffer(self.spots)
     @inbounds for (index,λ) in enumerate(self.lasers_λs)  # For all laser
-#        (mx, my) = compute_λ_peak(self.disp_model, λ)  # center of the index-th Gaussian spot
-        (mx, my) = compute_λ_peak(self.disp_model.order, self.disp_model.λref, cxs, cys, λ)
+#        (mx, my) = compute_λ_peak(self.lasers_model, λ)  # center of the index-th Gaussian spot
+        (mx, my) = compute_λ_peak(self.lasers_model.order, self.lasers_model.λref, cxs, cys, λ)
         xys = ((xs .- mx).^2) .+ ((ys .- my).^2)'
         spots_buffer[:,:,index] = GaussianModel2.(fwhm[index], xys)
     end
@@ -140,10 +137,10 @@ function (self::Dispersion_LKL)(fitvars::Vector{Float64}) ::Float64
     end
     
     Zygote.@ignore begin
-        self.disp_model.cxs .= cxs
-        self.disp_model.cys .= cys
-        self.disp_model.fwhms .= fwhm
-        self.disp_model.amplitudes .= amplitudes
+        self.lasers_model.cxs .= cxs
+        self.lasers_model.cys .= cys
+        self.lasers_model.fwhms .= fwhm
+        self.lasers_model.amplitudes .= amplitudes
     end
     
     return sum(self.weights .* (self.data .- sumspot).^2)
@@ -152,14 +149,14 @@ end
  """
     compute_amplitude(spots::Array{Float64,3}, data::Matrix, weights::Matrix) -> Vector{Float64}
 
-From a gaussian laser spots model, and data and weights from the dispersion file, compute the
+From a gaussian laser spots model, and data and weights from the lasers file, compute the
 amplitude for each gaussian laser spot, for a lenslet.
 
 # Arguments
 - `spots` is an `Array{Float64,3}` of size `(W,H,nλ)`, containing the gaussian model for each
   laser spot, each without background and with theoretical integral equal to `1`.
-- `data` is a matrix of size `(W,H)` containing dispersion data, for the lenslet bbox
-- `weights` is a matrix of size `(W,H)` containing dispersion data weights, for the lenslet bbox.
+- `data` is a matrix of size `(W,H)` containing lasers data, for the lenslet bbox
+- `weights` is a matrix of size `(W,H)` containing lasers data weights, for the lenslet bbox.
   high weight means high confidence, weight zero is for bad pixels
 
 if we define:
@@ -169,7 +166,7 @@ if we define:
 - `model` as the sum of spots multiplied by their respective amplitude:
   `model = sum(spots .* amp; dims=3)`
 
-the cost function (see `Dispersion_LKL`) is defined as:
+the cost function (see `Lasers_LKL`) is defined as:
 `cost = sum(weights .* (model .- data).^2)`
 
 if we define:

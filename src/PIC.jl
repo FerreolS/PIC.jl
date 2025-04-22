@@ -8,9 +8,9 @@ module PIC
 using Zygote, StaticArrays,StatsBase, LinearAlgebra, EasyFITS, TwoDimensional, ProgressMeter, 
       OptimPackNextGen, Random, DelimitedFiles
 
-export fitSpectralLawAndProfile, get_default_dispersion_cxy0s, exporte, importe, compar
+export fitSpectralLawAndProfile, exporte, importe, compar
 
-include("DispersionModel.jl")
+include("LasersModel.jl")
 include("ProfileModel.jl")
 include("LensletModel.jl")
 include("calib.jl")
