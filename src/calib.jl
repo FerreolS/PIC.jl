@@ -71,14 +71,12 @@ function fitSpectralLawAndProfile(
     length(profile_cλs_init) == profile_order + 1            || throw(ArgumentError)
     size(valid_lenslets) == (nlens,)                         || throw(ArgumentError)
 
-    lens_width  = lens_dx_lower + 1 + lens_dx_upper
-    lens_height = lens_dy_lower + 1 + lens_dy_upper
+    bbox_width  = lens_dx_lower + 1 + lens_dx_upper
+    bbox_height = lens_dy_lower + 1 + lens_dy_upper
 
-    nrows_lamp_amplitudes = lens_height + 1 # 1 additional cell
+    nrows_lamp_amplitudes = bbox_height + 1 # 1 additional cell
     
     lenslets_models = Vector{LensletModel}(undef, nlens)
-    lasers_fwhms      = fill(NaN64, nλ, nlens)
-    lasers_amplitudes = fill(NaN64, nλ, nlens)
     lasers_dists      = fill(NaN64, 2048, 2048)
     λmap              = fill(NaN64, 2048, 2048)
     lamp_amplitudes   = fill(NaN64, nrows_lamp_amplitudes, nlens)
@@ -94,8 +92,8 @@ function fitSpectralLawAndProfile(
             (lasers_cxy0s[i,2] - lens_dy_lower), (lasers_cxy0s[i,2] + lens_dy_upper)),
             RoundNearestTiesUp) # rounding mode to preserve bbox size
 
-        if size(bbox) != (lens_width,lens_height)
-            @error "bbox size $(size(bbox)) should be $((lens_width,lens_height))"
+        if size(bbox) != (bbox_width, bbox_height)
+            @error "bbox size $(size(bbox)) should be $((bbox_width,bbox_height))"
             assigned_lenslets[i] = false
             continue
         end
@@ -112,9 +110,9 @@ function fitSpectralLawAndProfile(
         lens_lasers_data = view(lasers_data, bbox)
         lens_lasers_weights = view(lasers_weights, bbox)
 
-        lasers_lkl = Lasers_LKL(bbox, lenslets_models[i].lasers_model,
-                                  lasers_λs, lens_lasers_data, lens_lasers_weights)
-
+        lasers_lkl = Lasers_LKL(
+            nλ, lasers_order, lasers_λs, λref, bbox, lens_lasers_data, lens_lasers_weights)
+        
         lasers_cxs_init = [ lasers_cxy0s[i,1] ;
                           LASERS_CX1_MEDIAN * (λref*1e6) ;
                           LASERS_CX2_MEDIAN * (λref*1e6)^2 ]
@@ -132,15 +130,15 @@ function fitSpectralLawAndProfile(
             assigned_lenslets[i] = false
             continue
         end
-        # last step of vmlmb is not necessary the chosen step
-        # so we call again, to mutate fields to the chosen step values
-        lasers_lkl(fitvars)
+        
+        (lens_fwhms, lens_cxs, lens_cys) = decode_lasers_lkl_fitvars(lasers_lkl.nλ, fitvars)
+        (cost, lens_amplitudes) = compute_lasers_cost_and_amplitudes(
+            lasers_lkl, lens_cxs, lens_cys, lens_fwhms)
 
-        (fit_fwhm, fit_cxs, fit_cys) = decode_lasers_lkl_fitvars(nλ, lasers_order, fitvars)
-        lasers_fwhms[:,i] .= fit_fwhm
-        
-        lasers_amplitudes[:,i] .= lenslets_models[i].lasers_model.amplitudes
-        
+        lenslets_models[i] = LensletModel(bbox,
+            LasersModel(nλ, lasers_order, λref, lens_cxs, lens_cys, lens_fwhms, lens_amplitudes),
+            lenslets_models[i].profile_model)
+
         compute_lasers_dists_and_λmap!(λrange, lenslets_models[i], lasers_dists, λmap)
 
         # Fit profile
@@ -173,8 +171,9 @@ function fitSpectralLawAndProfile(
     end
     ProgressMeter.finish!(p)
     
-    (; nlens, nλ, lasers_order, profile_order, assigned_lenslets, lenslets_models,
-     lasers_dists, λmap, lamp_amplitudes)
+    (; nlens, nλ, lasers_λs, λref, lasers_order, profile_order, nrows_lamp_amplitudes, lens_dx_lower, lens_dx_upper,
+       lens_dy_lower, lens_dy_upper, assigned_lenslets, lenslets_models, bbox_width, bbox_height,
+       lasers_dists, λmap, lamp_amplitudes)
 end
 
 function compute_lasers_dists_and_λmap!(
@@ -185,10 +184,10 @@ function compute_lasers_dists_and_λmap!(
     for I in CartesianIndices(lenslet.bbox)
         previous_index = max(1, previous_index-5)
         for (index,λ) in enumerate(λrange[previous_index:end])
-            (gaussian_cx, gaussian_cy) = compute_λ_peak(lenslet.lasers_model, λ)
-            dist_to_gaussian_cx = I[1] - gaussian_cx
-            dist_to_gaussian_cy = I[2] - gaussian_cy
-            r = sign(dist_to_gaussian_cx) * sqrt(dist_to_gaussian_cx^2 + dist_to_gaussian_cy^2)
+            (laser_cx, laser_cy) = compute_laser_center(lenslet.lasers_model, λ)
+            dist_to_laser_x = (I[1] - laser_cx)
+            dist_to_laser = sqrt(dist_to_laser_x^2 + (I[2] - laser_cy)^2)
+            r = sign(dist_to_laser_x) * dist_to_laser
             if isnan(lasers_dists[I]) || abs(r) < abs(lasers_dists[I])
                 lasers_dists[I] = r;
                 λmap[I] = λ;

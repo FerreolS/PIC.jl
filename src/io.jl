@@ -1,11 +1,90 @@
+function exporte2(filepath, A)
+    
+    (; nlens, nλ, lasers_λs, λref, lens_dx_lower, lens_dx_upper, lens_dy_lower, lens_dy_upper, bbox_width, bbox_height, lasers_order, profile_order, nrows_lamp_amplitudes, assigned_lenslets, lenslets_models, lasers_dists, λmap, lamp_amplitudes) = A
+    
+    FitsFile(filepath, "w!") do fits
+    
+        write(fits, FitsHeader("COMMENT" => "DATA is in a Table HDU"), [0;;])
+    
+        hdu = FitsTableHDU(fits,
+            "ASSIGNED" => Bool,
+            "BBOX_XMIN" => Int,
+            "BBOX_XMAX" => Int,
+            "BBOX_YMIN" => Int,
+            "BBOX_YMAX" => Int,
+            "LASERS_CXS" => (Float64, lasers_order+1),
+            "LASERS_CYS" => (Float64, lasers_order+1),
+            "LASERS_FWHMS" => (Float64, nλ),
+            "LASERS_AMPLITUDES" => (Float64, nλ),
+            "LASERS_DISTS" => (Float64, (bbox_width, bbox_height)),
+            "LASERS_LAMBDAMAP" => (Float64, (bbox_width, bbox_height)),
+            "PROFILE_CLAMBDAS" => (Float64, profile_order+1),
+            "PROFILE_CXS" => (Float64, profile_order+1),
+            "LAMP_AMPLITUDE" => (Float64, nrows_lamp_amplitudes))
+            
+        hdu["PIC_PACKAGE_VERSION"] = string(pkgversion(PIC))
+        hdu["NLENS"] = nlens
+        hdu["NLAMBDA"] = nλ
+        for (i,λ) in enumerate(lasers_λs)
+            hdu["LASER_LAMBDA_$i"] = λ
+        end
+        hdu["LAMBDAREF"] = λref
+        hdu["LENS_DX_LOWER"] = lens_dx_lower
+        hdu["LENS_DX_UPPER"] = lens_dx_upper
+        hdu["LENS_DY_LOWER"] = lens_dy_lower
+        hdu["LENS_DY_UPPER"] = lens_dy_upper
+        hdu["BBOX_WIDTH"] = bbox_width
+        hdu["BBOX_HEIGHT"] = bbox_height
+        hdu["LASERS_ORDER"] = lasers_order
+        hdu["PROFILE_ORDER"] = profile_order
+        hdu["NROWS_LAMP_AMPLITUDE"] = nrows_lamp_amplitudes
+        
+        mapdef(f,V,default) = map(eachindex(V)) do i; isassigned(V,i) ? f(V[i]) : default end
+        vects_to_mat(vs) = reduce(hcat, vs)
+        mats_to_cub(ms) = reduce(ms) do m1, m2; cat(m1, m2; dims=3) end
+        
+        write(hdu, "ASSIGNED" => Vector{Bool}(assigned_lenslets))
+        write(hdu, "BBOX_XMIN" => mapdef(lenslets_models, -1) do lm; lm.bbox.xmin end)
+        write(hdu, "BBOX_XMAX" => mapdef(lenslets_models, -1) do lm; lm.bbox.xmax end)
+        write(hdu, "BBOX_YMIN" => mapdef(lenslets_models, -1) do lm; lm.bbox.ymin end)
+        write(hdu, "BBOX_YMAX" => mapdef(lenslets_models, -1) do lm; lm.bbox.ymax end)
+        def = fill(NaN64, lasers_order+1)
+        write(hdu, "LASERS_CXS" => vects_to_mat(mapdef(lenslets_models, def) do lm
+            lm.lasers_model.cxs
+        end))
+        write(hdu, "LASERS_CYS" => vects_to_mat(mapdef(lenslets_models, def) do lm
+            lm.lasers_model.cys
+        end))
+        def = fill(NaN64, nλ)
+        write(hdu, "LASERS_FWHMS" => vects_to_mat(mapdef(lenslets_models, def) do lm
+            lm.lasers_model.fwhms
+        end))
+        write(hdu, "LASERS_AMPLITUDES" => vects_to_mat(mapdef(lenslets_models, def) do lm
+            lm.lasers_model.amplitudes
+        end))
+        def = fill(NaN64, bbox_width, bbox_height)
+        write(hdu, "LASERS_DISTS" => mats_to_cub(mapdef(lenslets_models, def) do lm
+            lasers_dists[lm.bbox]
+        end))
+        write(hdu, "LASERS_LAMBDAMAP" => mats_to_cub(mapdef(lenslets_models, def) do lm
+            λmap[lm.bbox]
+        end))
+        def = fill(NaN64, profile_order+1)
+        write(hdu, "PROFILE_CLAMBDAS" => vects_to_mat(mapdef(lenslets_models, def) do lm
+            lm.profile_model.cλs
+        end))
+        write(hdu, "PROFILE_CXS" => vects_to_mat(mapdef(lenslets_models, def) do lm
+            lm.profile_model.cxs
+        end))
+        write(hdu, "LAMP_AMPLITUDE" => lamp_amplitudes)
+    end
+    
+    nothing
+end
+
 function exporte(filepath, A)
 
-    (; lenslets_models, lasers_dists, λmap, lamp_amplitudes) = A
-    
-    nlens = length(lenslets_models)
-    
-    assigned_lenslets =
-        map(i -> isassigned(lenslets_models, i), eachindex(lenslets_models))
+    (; nlens, nλ, lasers_order, profile_order, assigned_lenslets, lenslets_models, lasers_dists, λmap, lamp_amplitudes) = A
     
     nλs = unique(map(lens -> lens.lasers_model.nλ, lenslets_models[assigned_lenslets]))
     lasers_orders = unique(map(lens -> lens.lasers_model.order, lenslets_models[assigned_lenslets]))
@@ -15,10 +94,6 @@ function exporte(filepath, A)
     length(lasers_orders) == 1 || throw(ArgumentError)
     length(profile_orders) == 1 || throw(ArgumentError)
     
-    nλ = nλs[1]
-    lasers_order = lasers_orders[1]
-    profile_order = profile_orders[1]
-
     bboxs_array = fill(NaN64, 4, nlens)
 
     lasers_λrefs_array = fill(NaN64, nlens) 
@@ -277,23 +352,16 @@ function compar(A, B)
     if (nrows_lampAmplitude,nlens) == size(A.lamp_amplitudes) == size(B.lamp_amplitudes)
         errprint = 0
         for i in 1:nlens
-            if isassigned(A.lenslets_models, i) & isassigned(B.lenslets_models, i)
-                for r in 1:nrows_lampAmplitude
-                    if !isapprox(A.lamp_amplitudes[r,i], B.lamp_amplitudes[r,i]; atol=1, rtol=0.01, nans=true)
-                        @warn "lamp_amplitudes lens $i row $r ($(A.lamp_amplitudes[r,i]) != $(B.lamp_amplitudes[r,i]))"
-                        eq = false
-                        errprint += 1
-                    end
-                    if errprint >= 10
-                        break
-                    end
+            bothassigned[i] || continue
+            for r in 1:nrows_lampAmplitude
+                if !isapprox(A.lamp_amplitudes[r,i], B.lamp_amplitudes[r,i]; atol=1, rtol=0.01, nans=true)
+                    @warn "lamp_amplitudes lens $i row $r ($(A.lamp_amplitudes[r,i]) != $(B.lamp_amplitudes[r,i]))"
+                    eq = false
+                    errprint += 1
                 end
-            elseif !isassigned(A.lenslets_models, i) & !isassigned(B.lenslets_models, i)
-                # nothing to do
-            else
-                @warn "lens $i is assigned in one and unassigned in another"
-                eq = false
-                errprint += 1
+                if errprint >= 10
+                    break
+                end
             end
             if errprint >= 10
                 @warn "too many errors for lamp_amplitudes, stopping searching them"

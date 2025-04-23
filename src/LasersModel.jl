@@ -36,18 +36,6 @@ function LasersModel(nλ::Int, order::Int, λref::Float64)
     LasersModel(nλ, order, λref, cxs, cys, fwhms, amplitudes)
 end
 
-function compute_λ_peak(
-    order::Int, λref::Float64, cxs::Vector{Float64}, cys::Vector{Float64}, λ::Float64
-) ::NTuple{2,Float64}
-    λpo = ((λ - λref)/λref).^(1:order)
-    x = cxs[1] + sum(cxs[2:end] .* λpo)
-    y = cys[1] + sum(cys[2:end] .* λpo)
-    (x, y)
-end
-
-function compute_λ_peak(lasers_model::LasersModel, λ::Float64) ::NTuple{2,Float64}
-    compute_λ_peak(lasers_model.order, lasers_model.λref, lasers_model.cxs, lasers_model.cys, λ)
-end
 
 
 """
@@ -61,40 +49,34 @@ Build the likelihood function for a given lenslet
 """
 struct Lasers_LKL{D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
     nλ::Int
-    bbox::BoundingBox{Int}
-    lasers_model::LasersModel
+    order::Int64  # order of the polynomial
     lasers_λs::Vector{Float64}
+    λref::Float64   # reference wavelength
+    bbox::BoundingBox{Int}
     data::D
     weights::W
-    spots::Array{Float64,3}
     function Lasers_LKL{D,W}(
-        nλ, bbox, lasers_model, lasers_λs, data, weights, spots
+        nλ, order, lasers_λs, λref, bbox, data, weights
     ) where {D,W}
         length(lasers_λs) == nλ        || throw(ArgumentError)
-        nλ > lasers_model.order          || throw(ArgumentError)
         size(data)       == size(bbox) || throw(ArgumentError)
         size(weights)    == size(bbox) || throw(ArgumentError)
-        size(spots)[1:2] == size(bbox) || throw(ArgumentError)
-        size(spots,3) == nλ            || throw(ArgumentError)
-        new{D,W}(nλ, bbox, lasers_model, lasers_λs, data, weights, spots)
+        new{D,W}(nλ, order, lasers_λs, λref, bbox, data, weights)
     end
 end
 
 function Lasers_LKL(
-    bbox::BoundingBox{Int}, lasers_model::LasersModel, lasers_λs::Vector{Float64},
+    nλ::Int, order::Int64, lasers_λs::Vector{Float64}, λref::Float64, bbox::BoundingBox{Int},
     data::D, weights::W
 ) where {D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
-    nλ = length(lasers_λs)
-    spots = zeros(Float64, size(bbox)..., nλ)
-    Lasers_LKL{D,W}(nλ, bbox, lasers_model, lasers_λs, data, weights, spots)
+    Lasers_LKL{D,W}(nλ, order, lasers_λs, λref, bbox, data, weights)
 end
 
 function encode_lasers_lkl_fitvars(
-    fwhm::Vector{Float64}, cxs::Vector{Float64}, cys::Vector{Float64}
+    fwhms::Vector{Float64}, cxs::Vector{Float64}, cys::Vector{Float64}
 ) ::Vector{Float64}
-    length(cxs) == length(cys) || throw(ArgumentError)
     fitvars = Float64[]
-    append!(fitvars, fwhm)
+    append!(fitvars, fwhms)
     for i in 1:length(cxs)
         push!(fitvars, cxs[i])
         push!(fitvars, cys[i])
@@ -103,57 +85,75 @@ function encode_lasers_lkl_fitvars(
 end
 
 function decode_lasers_lkl_fitvars(
-    nλ::Int, order::Int, fitvars::Vector{Float64}
+    nλ::Int, fitvars::Vector{Float64}
 ) ::NTuple{3,Vector{Float64}}
-    length(fitvars) == (nλ + 2 * (order + 1)) || throw(ArgumentError)
-    fwhm = fitvars[1:nλ]
+    fwhms = fitvars[1:nλ]
     cxs  = fitvars[ (nλ+1) : 2 : (end-1) ]
     cys  = fitvars[ (nλ+2) : 2 :  end    ]
-    (fwhm, cxs, cys)
+    (fwhms, cxs, cys)
 end
 
 function (self::Lasers_LKL)(fitvars::Vector{Float64}) ::Float64
+    (fwhms, cxs, cys) = decode_lasers_lkl_fitvars(self.nλ, fitvars)
+    (cost, amplitudes) = compute_lasers_cost_and_amplitudes(self, cxs, cys, fwhms)
+    cost
+end
 
-    (fwhm, cxs, cys) = decode_lasers_lkl_fitvars(self.nλ, self.lasers_model.order, fitvars)
+function compute_laser_center(
+    order::Int, λref::Float64, cxs::Vector{Float64}, cys::Vector{Float64}, λ::Float64
+) ::NTuple{2,Float64}
+    λpo = ((λ - λref)/λref).^(1:order)
+    x = cxs[1] + sum(cxs[2:end] .* λpo)
+    y = cys[1] + sum(cys[2:end] .* λpo)
+    (x, y)
+end
 
-    (xs,ys) = axes(self.bbox) # extracting bounding box range
-    
-    spots_buffer = Zygote.Buffer(self.spots)
-    @inbounds for (index,λ) in enumerate(self.lasers_λs)  # For all laser
-#        (mx, my) = compute_λ_peak(self.lasers_model, λ)  # center of the index-th Gaussian spot
-        (mx, my) = compute_λ_peak(self.lasers_model.order, self.lasers_model.λref, cxs, cys, λ)
-        xys = ((xs .- mx).^2) .+ ((ys .- my).^2)'
-        spots_buffer[:,:,index] = GaussianModel2.(fwhm[index], xys)
+function compute_laser_center(lm::LasersModel, λ::Float64) ::NTuple{2,Float64}
+    compute_laser_center(lm.order, lm.λref, lm.cxs, lm.cys, λ)
+end
+
+function compute_laser_image(
+    laser_center_x::Float64, laser_center_y::Float64, fwhm::Float64, bbox::BoundingBox{Int}
+) ::Matrix{Float64}
+    (xs, ys) = axes(bbox)
+    sq_dists = ((xs .- laser_center_x).^2) .+ ((ys .- laser_center_y).^2)'
+    GaussianModel2.(fwhm, sq_dists)
+end
+
+function compute_lasers_images(
+    nλ::Int, order::Int, λref::Float64, cxs::Vector{Float64}, cys::Vector{Float64},
+    fwhms::Vector{Float64}, lasers_λs::Vector{Float64}, bbox::BoundingBox{Int}
+) ::Vector{Matrix{Float64}}
+    map(1:nλ) do i
+        (laser_center_x, laser_center_y) = compute_laser_center(order, λref, cxs, cys, lasers_λs[i])
+        matrix = compute_laser_image(laser_center_x, laser_center_y, fwhms[i], bbox)
     end
-    spots = copy(spots_buffer)
-    amplitudes = compute_amplitudes(spots, self.data, self.weights)
-    sumspot = zeros(Float64, size(self.bbox))
-    @inbounds for i in 1:self.nλ
-        if isnan(amplitudes[i])
-            @debug "NaN amplitude"
-        else
-            sumspot += amplitudes[i] * spots[:,:,i]
-        end
-    end
+end
+
+function compute_lasers_cost_and_amplitudes(
+    lkl::Lasers_LKL, cxs::Vector{Float64}, cys::Vector{Float64}, fwhms::Vector{Float64}
+) ::Tuple{Float64,Vector{Float64}}
+
+    laser_images = compute_lasers_images(
+        lkl.nλ, lkl.order, lkl.λref, cxs, cys, fwhms, lkl.lasers_λs, lkl.bbox)
+
+    amplitudes = compute_lasers_amplitudes(laser_images, lkl.data, lkl.weights)
     
-    Zygote.@ignore begin
-        self.lasers_model.cxs .= cxs
-        self.lasers_model.cys .= cys
-        self.lasers_model.fwhms .= fwhm
-        self.lasers_model.amplitudes .= amplitudes
-    end
+    model = sum(i -> laser_images[i] .* amplitudes[i], 1:lkl.nλ)
     
-    return sum(self.weights .* (self.data .- sumspot).^2)
+    cost = sum(lkl.weights .* (lkl.data .- model).^2)
+    
+    (cost, amplitudes)
 end
 
  """
-    compute_amplitude(spots::Array{Float64,3}, data::Matrix, weights::Matrix) -> Vector{Float64}
+    compute_amplitude(images::Array{Float64,3}, data::Matrix, weights::Matrix) -> Vector{Float64}
 
-From a gaussian laser spots model, and data and weights from the lasers file, compute the
+From a gaussian laser images model, and data and weights from the lasers file, compute the
 amplitude for each gaussian laser spot, for a lenslet.
 
 # Arguments
-- `spots` is an `Array{Float64,3}` of size `(W,H,nλ)`, containing the gaussian model for each
+- `images` is an `Array{Float64,3}` of size `(W,H,nλ)`, containing the gaussian model for each
   laser spot, each without background and with theoretical integral equal to `1`.
 - `data` is a matrix of size `(W,H)` containing lasers data, for the lenslet bbox
 - `weights` is a matrix of size `(W,H)` containing lasers data weights, for the lenslet bbox.
@@ -161,16 +161,16 @@ amplitude for each gaussian laser spot, for a lenslet.
 
 if we define:
 - `(W,H)` as the size of the bbox of the lenslet
-- `nλ` as the number of laser spots
+- `nλ` as the number of laser images
 - `amp` as a vector of size `nλ` containing amplitudes for each gaussian laser spot
-- `model` as the sum of spots multiplied by their respective amplitude:
-  `model = sum(spots .* amp; dims=3)`
+- `model` as the sum of images multiplied by their respective amplitude:
+  `model = sum(images .* amp; dims=3)`
 
 the cost function (see `Lasers_LKL`) is defined as:
 `cost = sum(weights .* (model .- data).^2)`
 
 if we define:
-- `G` a matrix of size `(W*H, nλ)` with `G[:,i] .= spots[:,:,i]`
+- `G` a matrix of size `(W*H, nλ)` with `G[:,i] .= images[:,:,i]`
 - `d` a vector of size `(W*H)` with `d[:] .= data[:,:]`
 - `w` a vector of size `(W*H)` with `w[:] .= weights[:,:]`
 - `W` a diagonal matrix of size `(W*H,W*H)` with `W[i,i] .= w[i]`
@@ -196,12 +196,12 @@ finally we define:
 - `b = (dᵀ⋅W⋅G)`, a vector of size `(nλ)`
 We compute `A` and `b` in the function, inverse `A`, then we have a value for `amp`.
 """
-function compute_amplitudes(
-    spots::AbstractArray{Float64,3}, data::AbstractMatrix, weights::AbstractMatrix
+function compute_lasers_amplitudes(
+    images::Vector{Matrix{Float64}}, data::AbstractMatrix, weights::AbstractMatrix
 ) ::Vector{Float64}
     
-    A = [ sum(spots[:,:,i] .* weights .* spots[:,:,j]) for i in 1:3, j in 1:3 ]
-    b = [ sum(data .* weights .* spots[:,:,i]) for i in 1:3 ]
+    A = [ sum(images[i] .* weights .* images[j]) for i in 1:3, j in 1:3 ]
+    b = [ sum(data .* weights .* images[i]) for i in 1:3 ]
     
     amp = inv(A) * b
 end
