@@ -68,7 +68,7 @@ lasers_fwhms_init = PIC.LASERS_FWHMS_INIT[1:nλ]
 valid_lenslets = falses(nlens)
 valid_lenslets[numlens] = true
 
-(; nlens, nλ, λref, lasers_order, profile_order, assigned_lenslets, lenslets_models,
+(; nlens, nλ, λref, lasers_order, lamp_order, assigned_lenslets, lenslets_models,
    lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes,
    lasers_pixels_dists, lasers_pixels_λs, lamp_amplitudes) =
     PIC.fitSpectralLawAndProfile(

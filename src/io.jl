@@ -1,6 +1,6 @@
 function exporte(filepath, A)
     
-    (; nlens, nλ, lasers_λs, λref, lens_dx_lower, lens_dx_upper, lens_dy_lower, lens_dy_upper, bbox_width, bbox_height, lasers_order, profile_order, nrows_lamp_amplitudes, assigned_lenslets, lenslets_models, lasers_dists, λmap, lamp_amplitudes, lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes, lasers_pixels_dists, lasers_pixels_λs) = A
+    (; nlens, nλ, lasers_λs, λref, lens_dx_lower, lens_dx_upper, lens_dy_lower, lens_dy_upper, bbox_width, bbox_height, lasers_order, lamp_order, nrows_lamp_amplitudes, assigned_lenslets, lenslets_models, lasers_dists, λmap, lamp_amplitudes, lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes, lasers_pixels_dists, lasers_pixels_λs) = A
     
     FitsFile(filepath, "w!") do fits
     
@@ -18,8 +18,8 @@ function exporte(filepath, A)
             "LASERS_AMPLITUDES" => (Float64, nλ),
             "LASERS_PIXELS_DISTS" => (Float64, (bbox_width, bbox_height)),
             "LASERS_PIXELS_LAMBDAS" => (Float64, (bbox_width, bbox_height)),
-            "PROFILE_CLAMBDAS" => (Float64, profile_order+1),
-            "PROFILE_CXS" => (Float64, profile_order+1),
+            "PROFILE_CLAMBDAS" => (Float64, lamp_order+1),
+            "PROFILE_CXS" => (Float64, lamp_order+1),
             "LAMP_AMPLITUDE" => (Float64, nrows_lamp_amplitudes))
             
         hdu["EXTNAME"] = "PIC_DATA"
@@ -37,7 +37,7 @@ function exporte(filepath, A)
         hdu["BBOX_WIDTH"] = bbox_width
         hdu["BBOX_HEIGHT"] = bbox_height
         hdu["LASERS_ORDER"] = lasers_order
-        hdu["PROFILE_ORDER"] = profile_order
+        hdu["PROFILE_ORDER"] = lamp_order
         hdu["NROWS_LAMP_AMPLITUDE"] = nrows_lamp_amplitudes
         
         mapdef(f,V,default) = map(eachindex(V)) do i; isassigned(V,i) ? f(V[i]) : default end
@@ -55,12 +55,12 @@ function exporte(filepath, A)
         write(hdu, "LASERS_AMPLITUDES" => lasers_amplitudes)
         write(hdu, "LASERS_PIXELS_DISTS" => lasers_pixels_dists)
         write(hdu, "LASERS_PIXELS_LAMBDAS" => lasers_pixels_λs)
-        def = fill(NaN64, profile_order+1)
+        def = fill(NaN64, lamp_order+1)
         write(hdu, "PROFILE_CLAMBDAS" => vects_to_mat(mapdef(lenslets_models, def) do lm
-            lm.profile_model.cλs
+            lm.lamp_model.cλs
         end))
         write(hdu, "PROFILE_CXS" => vects_to_mat(mapdef(lenslets_models, def) do lm
-            lm.profile_model.cxs
+            lm.lamp_model.cxs
         end))
         write(hdu, "LAMP_AMPLITUDE" => lamp_amplitudes)
     end
@@ -84,7 +84,7 @@ function importe(filepath)
         bbox_width = hdu["BBOX_WIDTH"].integer
         bbox_height = hdu["BBOX_HEIGHT"].integer
         lasers_order = hdu["LASERS_ORDER"].integer
-        profile_order = hdu["PROFILE_ORDER"].integer
+        lamp_order = hdu["PROFILE_ORDER"].integer
         nrows_lamp_amplitudes = hdu["NROWS_LAMP_AMPLITUDE"].integer
 
         D = read(hdu)
@@ -107,14 +107,14 @@ function importe(filepath)
             assigned_lenslets[i] || continue
             bbox = BoundingBox{Int}(; xmin=D["BBOX_XMIN"][i], xmax=D["BBOX_XMAX"][i],
                                       ymin=D["BBOX_YMIN"][i], ymax=D["BBOX_YMAX"][i])
-            profile_model = ProfileModel(
-                λref, profile_order, D["PROFILE_CLAMBDAS"][:,i], D["PROFILE_CXS"][:,i])
-            lenslets_models[i] = LensletModel(bbox, profile_model)
+            lamp_model = ProfileModel(
+                λref, lamp_order, D["PROFILE_CLAMBDAS"][:,i], D["PROFILE_CXS"][:,i])
+            lenslets_models[i] = LensletModel(bbox, lamp_model)
             lamp_amplitudes[:,i] .= D["LAMP_AMPLITUDE"][:,i]
         end
 
         (; nlens, nλ, lasers_λs, λref, lens_dx_lower, lens_dx_upper, lens_dy_lower, lens_dy_upper,
-           bbox_width, bbox_height, lasers_order, profile_order, nrows_lamp_amplitudes,
+           bbox_width, bbox_height, lasers_order, lamp_order, nrows_lamp_amplitudes,
            assigned_lenslets, lenslets_models, lamp_amplitudes,
            lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes, lasers_pixels_dists,
            lasers_pixels_λs)
@@ -136,7 +136,7 @@ function compar(A, B)
         @warn "different lasers order"
         return false
     end
-    if A.profile_order != B.profile_order
+    if A.lamp_order != B.lamp_order
         @warn "different profile order"
         return false
     end
@@ -253,8 +253,8 @@ function compar(A, B)
             break
         end
         if isassigned(A.lenslets_models, i) & isassigned(B.lenslets_models, i)
-            profileA = A.lenslets_models[i].profile_model
-            profileB = B.lenslets_models[i].profile_model
+            profileA = A.lenslets_models[i].lamp_model
+            profileB = B.lenslets_models[i].lamp_model
             if !isapprox(profileA.λref, profileB.λref)
                 @warn "different profile λref lens $i"
                 eq = false

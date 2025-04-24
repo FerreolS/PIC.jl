@@ -26,6 +26,16 @@ function ProfileModel(λref::Float64, coefs::Vector{Float64})
     ProfileModel(λref, order, cλs, cxs)
 end
 
+function compute_lamp_fwhm_and_center_x(
+    order::Int, λref::Float64, cλs::Vector{Float64}, cxs::Vector{Float64}, λ::Float64, x::Int
+) ::NTuple{2,Float64}
+    λpo = ((λ - λref) / λref).^(1:order)
+    fwhm = cλs[1] + sum(cλs[2:end] .* λpo)
+    center_x = cxs[1] + sum(cxs[2:end] .* λpo)
+    sq_dist_to_center_x = (center_x - x)^2
+    (fwhm, sq_dist_to_center_x)
+end
+
 function (self::ProfileModel)(λ::Float64, x::Int) ::NTuple{2,Float64} # [?, pix]
     λpo = ((λ-self.λref)/self.λref).^(1:self.order)
     w = self.cλs[1] + sum(self.cλs[2:end] .* λpo)
@@ -44,52 +54,56 @@ function updateProfileModel!(
     nothing
 end
 
-struct Profile_LKL{D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
+struct Lamp_LKL{D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
+    order::Int
+    λref::Float64
     bbox::BoundingBox{Int}
-    profile_model::ProfileModel
+    lasers_pixels_λs::AbstractMatrix{Float64}
     data::D
     weights::W
-    λMap::AbstractMatrix{Float64}
-    amplitude::Vector{Float64}
-    function Profile_LKL{D,W}(
-        bbox, profile_model, data, weights, λMap, amplitude
-    ) where {D,W}
-        size(data) == size(weights)         || throw(ArgumentError)
-        size(data) == size(λMap)            || throw(ArgumentError)
-        size(data) == size(bbox)            || throw(ArgumentError)
-        size(data,2)+1 == length(amplitude) || throw(ArgumentError)
-        new{D,W}(bbox, profile_model, data, weights, λMap, amplitude)
+    function Lamp_LKL{D,W}(order, λref, bbox, lasers_pixels_λs, data, weights) where {D,W}
+        size(bbox) == size(lasers_pixels_λs) || throw(ArgumentError)
+        size(bbox) == size(data)             || throw(ArgumentError)
+        size(bbox) == size(weights)          || throw(ArgumentError)
+        new{D,W}(order, λref, bbox, lasers_pixels_λs, data, weights)
     end
 end
 
-function Profile_LKL(
-    bbox::BoundingBox{Int}, profile_model::ProfileModel,
-    data::D, weight::W, λMap::AbstractMatrix{Float64}
+function Lamp_LKL(
+    order::Int, λref::Float64, bbox::BoundingBox{Int},
+    lasers_pixels_λs::AbstractMatrix{Float64}, data::D, weights::W
 ) where {D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
-    amplitude = zeros(Float64, size(data,2)+1)
-    Profile_LKL{D,W}(bbox, profile_model, data, weight, λMap, amplitude)
+    Lamp_LKL{D,W}(order, λref, bbox, lasers_pixels_λs, data, weights)
 end
 
-function encode_profile_lkl_fitvars(cλs::Vector{Float64}, cxs::Vector{Float64}) ::Vector{Float64}
+function encode_lamp_lkl_fitvars(cλs::Vector{Float64}, cxs::Vector{Float64}) ::Vector{Float64}
     fitvars = [ cλs ; cxs ]
 end
 
-function decode_profile_lkl_fitvars(fitvars::Vector{Float64}) ::NTuple{2,Vector{Float64}}
-    half = Int(length(fitvars)/2)
+function decode_lamp_lkl_fitvars(fitvars::Vector{Float64}) ::NTuple{2,Vector{Float64}}
+    half = length(fitvars) ÷ 2
     cλs = fitvars[1:half]
     cxs = fitvars[half+1:end]
-    (cλs,cxs)
+    (cλs, cxs)
 end
 
-function (self::Profile_LKL)(fitvars::Vector{Float64}) ::Float64
-    (cλs,cxs) = decode_profile_lkl_fitvars(fitvars)
-    updateProfileModel!(self.profile_model, cλs, cxs)
-    lens_rx = axes(self.bbox, 1)
-    p = @. GaussianModel2(self.profile_model(self.λMap, $lens_rx))
-    profile = p ./ sum(p; dims=1)
-    amp = Zygote.@ignore updateAmplitudeAndBackground!(profile, self.data, self.weights)
-    Zygote.@ignore self.amplitude .= amp[:]
-    return (sum(abs2,@. self.weights * (self.data - amp[1] - $(reshape(amp[2:end],1,:)) * profile)))
+function (self::Lamp_LKL)(fitvars::Vector{Float64}) ::Float64
+    (cλs, cxs) = decode_lamp_lkl_fitvars(fitvars)
+#    updateProfileModel!(self.profile_model, cλs, cxs)
+    bbox_rx = axes(self.bbox, 1)
+    
+    lamp_image = [
+        GaussianModel2(compute_lamp_fwhm_and_center_x(
+            self.order, self.λref, cλs, cxs, self.lasers_pixels_λs[x,y], bbox_rx[x]))
+        for x in 1:size(self.bbox,1), y in 1:size(self.bbox,2) ]
+    
+#    p = @. GaussianModel2(self.profile_model(self.lasers_pixels_λs, bbox_rx))
+#    println(size(p))
+#    error()
+    lamp_image_norm = lamp_image ./ sum(lamp_image; dims=1)
+    amp = Zygote.@ignore updateAmplitudeAndBackground!(lamp_image_norm, self.data, self.weights)
+#    Zygote.@ignore self.amplitude .= amp[:]
+    return (sum(abs2,@. self.weights * (self.data - amp[1] - $(reshape(amp[2:end],1,:)) * lamp_image_norm)))
 end
 
 function updateAmplitudeAndBackground!(

@@ -62,10 +62,10 @@ end
 function compute_laser_center(
     order::Int, λref::Float64, cxs::Vector{Float64}, cys::Vector{Float64}, λ::Float64
 ) ::NTuple{2,Float64}
-    λpo = ((λ - λref)/λref).^(1:order)
-    x = cxs[1] + sum(cxs[2:end] .* λpo)
-    y = cys[1] + sum(cys[2:end] .* λpo)
-    (x, y)
+    λpo = ((λ - λref) / λref).^(1:order)
+    center_x = cxs[1] + sum(cxs[2:end] .* λpo)
+    center_y = cys[1] + sum(cys[2:end] .* λpo)
+    (center_x, center_y)
 end
 
 """

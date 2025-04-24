@@ -37,8 +37,8 @@ function fitSpectralLawAndProfile(
       lens_dy_lower ::Int = LENS_DY_LOWER,
       lens_dy_upper ::Int = LENS_DY_UPPER,
       lasers_order ::Int = LASERS_ORDER,
-      profile_order ::Int = 2,
-      profile_cλs_init ::Vector{Float64} = PROFILE_CλS_INIT,
+      lamp_order ::Int = 2,
+      lamp_cλs_init ::Vector{Float64} = PROFILE_CλS_INIT,
       valid_lenslets ::AbstractVector{Bool} = trues(nlens)
 )
     size(lasers_data) == size(lasers_weights) == (2048,2048) || throw(ArgumentError)
@@ -51,8 +51,8 @@ function fitSpectralLawAndProfile(
     lens_dx_upper ≥ 0                                        || throw(ArgumentError)
     lens_dy_lower ≥ 0                                        || throw(ArgumentError)
     lens_dy_upper ≥ 0                                        || throw(ArgumentError)
-    profile_order ≥ 1                                        || throw(ArgumentError)
-    length(profile_cλs_init) == profile_order + 1            || throw(ArgumentError)
+    lamp_order ≥ 1                                        || throw(ArgumentError)
+    length(lamp_cλs_init) == lamp_order + 1            || throw(ArgumentError)
     size(valid_lenslets) == (nlens,)                         || throw(ArgumentError)
 
     bbox_width  = lens_dx_lower + 1 + lens_dx_upper
@@ -88,7 +88,7 @@ function fitSpectralLawAndProfile(
             continue
         end
 
-        lenslets_models[i] = LensletModel(bbox, nλ, λref, profile_order);
+        lenslets_models[i] = LensletModel(bbox, nλ, λref, lamp_order);
 
         # Fit Lasers
 
@@ -118,42 +118,43 @@ function fitSpectralLawAndProfile(
         
         (lens_lasers_fwhms, lens_lasers_cxs, lens_lasers_cys) = decode_lasers_lkl_fitvars(
             lasers_lkl.nλ, fitvars)
+            
+        (cost, lens_lasers_amplitudes) = compute_lasers_cost_and_amplitudes(
+            lasers_lkl, lens_lasers_cxs, lens_lasers_cys, lens_lasers_fwhms)
+            
         lasers_cxs[:,i] .= lens_lasers_cxs
         lasers_cys[:,i] .= lens_lasers_cys
         lasers_fwhms[:,i] .= lens_lasers_fwhms
-        
-        (cost, lens_lasers_amplitudes) = compute_lasers_cost_and_amplitudes(
-            lasers_lkl, lasers_cxs[:,i], lasers_cys[:,i], lasers_fwhms[:,i])
         lasers_amplitudes[:,i] .= lens_lasers_amplitudes
 
         lens_lasers_pixels_dists = view(lasers_pixels_dists,:,:,i)
         lens_lasers_pixels_λs = view(lasers_pixels_λs,:,:,i)
 
         compute_lasers_dists_and_λmap!(
-            λrange, bbox, lasers_order, λref, lasers_cxs[:,i], lasers_cys[:,i],
+            λrange, bbox, lasers_order, λref, lens_lasers_cxs, lens_lasers_cys,
             lens_lasers_pixels_dists, lens_lasers_pixels_λs)
             
         # Fit profile
         
         lens_lamp_data = view(lamp_data, bbox)
         lens_lamp_weights = view(lamp_weights, bbox)
-        profile_cxs_init = [ lasers_cxs[1,i] ; 0 ; 0 ]
-        profile_lkl = Profile_LKL(bbox, lenslets_models[i].profile_model,
-                                  lens_lamp_data, lens_lamp_weights, lens_lasers_pixels_λs)
-        fitvars = encode_profile_lkl_fitvars(profile_cλs_init, profile_cxs_init)
+        lamp_cxs_init = [ lens_lasers_cxs[1] ; 0 ; 0 ]
+        lamp_lkl = Lamp_LKL(lamp_order, λref, bbox, lens_lasers_pixels_λs,
+                                  lens_lamp_data, lens_lamp_weights)
+        fitvars = encode_lamp_lkl_fitvars(lamp_cλs_init, lamp_cxs_init)
         try
-            vmlmb!(profile_lkl, fitvars
+            vmlmb!(lamp_lkl, fitvars
                    ; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
         catch e
             @debug "Error on lenslet $i" exception=(e,catch_backtrace())
             assigned_lenslets[i] = false
             continue
         end
-        (fit_cλs, fit_cxs) = decode_profile_lkl_fitvars(fitvars)
-        updateProfileModel!(lenslets_models[i].profile_model, fit_cλs, fit_cxs)
+        (fit_cλs, fit_cxs) = decode_lamp_lkl_fitvars(fitvars)
+        updateProfileModel!(lenslets_models[i].lamp_model, fit_cλs, fit_cxs)
 
         lenslet_rx = axes(bbox, 1)
-        profile = @. GaussianModel2(lenslets_models[i].profile_model(lens_lasers_pixels_λs, lenslet_rx))
+        profile = @. GaussianModel2(lenslets_models[i].lamp_model(lens_lasers_pixels_λs, lenslet_rx))
         profile ./= sum(profile; dims=1)
         lamp_amplitudes[:,i] .= updateAmplitudeAndBackground!(
             profile, lens_lamp_data, lens_lamp_weights)
@@ -162,7 +163,7 @@ function fitSpectralLawAndProfile(
     end
     ProgressMeter.finish!(p)
     
-    (; nlens, nλ, lasers_λs, λref, lasers_order, profile_order, nrows_lamp_amplitudes, lens_dx_lower, lens_dx_upper,
+    (; nlens, nλ, lasers_λs, λref, lasers_order, lamp_order, nrows_lamp_amplitudes, lens_dx_lower, lens_dx_upper,
        lens_dy_lower, lens_dy_upper, assigned_lenslets, lenslets_models, bbox_width, bbox_height,
        lamp_amplitudes, lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes,
        lasers_pixels_dists, lasers_pixels_λs)
