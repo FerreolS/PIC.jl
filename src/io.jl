@@ -1,6 +1,6 @@
-function exporte2(filepath, A)
+function exporte(filepath, A)
     
-    (; nlens, nλ, lasers_λs, λref, lens_dx_lower, lens_dx_upper, lens_dy_lower, lens_dy_upper, bbox_width, bbox_height, lasers_order, profile_order, nrows_lamp_amplitudes, assigned_lenslets, lenslets_models, lasers_dists, λmap, lamp_amplitudes) = A
+    (; nlens, nλ, lasers_λs, λref, lens_dx_lower, lens_dx_upper, lens_dy_lower, lens_dy_upper, bbox_width, bbox_height, lasers_order, profile_order, nrows_lamp_amplitudes, assigned_lenslets, lenslets_models, lasers_dists, λmap, lamp_amplitudes, lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes, lasers_pixels_dists, lasers_pixels_λs) = A
     
     FitsFile(filepath, "w!") do fits
     
@@ -16,12 +16,13 @@ function exporte2(filepath, A)
             "LASERS_CYS" => (Float64, lasers_order+1),
             "LASERS_FWHMS" => (Float64, nλ),
             "LASERS_AMPLITUDES" => (Float64, nλ),
-            "LASERS_DISTS" => (Float64, (bbox_width, bbox_height)),
-            "LASERS_LAMBDAMAP" => (Float64, (bbox_width, bbox_height)),
+            "LASERS_PIXELS_DISTS" => (Float64, (bbox_width, bbox_height)),
+            "LASERS_PIXELS_LAMBDAS" => (Float64, (bbox_width, bbox_height)),
             "PROFILE_CLAMBDAS" => (Float64, profile_order+1),
             "PROFILE_CXS" => (Float64, profile_order+1),
             "LAMP_AMPLITUDE" => (Float64, nrows_lamp_amplitudes))
             
+        hdu["EXTNAME"] = "PIC_DATA"
         hdu["PIC_PACKAGE_VERSION"] = string(pkgversion(PIC))
         hdu["NLENS"] = nlens
         hdu["NLAMBDA"] = nλ
@@ -48,27 +49,12 @@ function exporte2(filepath, A)
         write(hdu, "BBOX_XMAX" => mapdef(lenslets_models, -1) do lm; lm.bbox.xmax end)
         write(hdu, "BBOX_YMIN" => mapdef(lenslets_models, -1) do lm; lm.bbox.ymin end)
         write(hdu, "BBOX_YMAX" => mapdef(lenslets_models, -1) do lm; lm.bbox.ymax end)
-        def = fill(NaN64, lasers_order+1)
-        write(hdu, "LASERS_CXS" => vects_to_mat(mapdef(lenslets_models, def) do lm
-            lm.lasers_model.cxs
-        end))
-        write(hdu, "LASERS_CYS" => vects_to_mat(mapdef(lenslets_models, def) do lm
-            lm.lasers_model.cys
-        end))
-        def = fill(NaN64, nλ)
-        write(hdu, "LASERS_FWHMS" => vects_to_mat(mapdef(lenslets_models, def) do lm
-            lm.lasers_model.fwhms
-        end))
-        write(hdu, "LASERS_AMPLITUDES" => vects_to_mat(mapdef(lenslets_models, def) do lm
-            lm.lasers_model.amplitudes
-        end))
-        def = fill(NaN64, bbox_width, bbox_height)
-        write(hdu, "LASERS_DISTS" => mats_to_cub(mapdef(lenslets_models, def) do lm
-            lasers_dists[lm.bbox]
-        end))
-        write(hdu, "LASERS_LAMBDAMAP" => mats_to_cub(mapdef(lenslets_models, def) do lm
-            λmap[lm.bbox]
-        end))
+        write(hdu, "LASERS_CXS" => lasers_cxs)
+        write(hdu, "LASERS_CYS" => lasers_cys)
+        write(hdu, "LASERS_FWHMS" => lasers_fwhms)
+        write(hdu, "LASERS_AMPLITUDES" => lasers_amplitudes)
+        write(hdu, "LASERS_PIXELS_DISTS" => lasers_pixels_dists)
+        write(hdu, "LASERS_PIXELS_LAMBDAS" => lasers_pixels_λs)
         def = fill(NaN64, profile_order+1)
         write(hdu, "PROFILE_CLAMBDAS" => vects_to_mat(mapdef(lenslets_models, def) do lm
             lm.profile_model.cλs
@@ -82,119 +68,56 @@ function exporte2(filepath, A)
     nothing
 end
 
-function exporte(filepath, A)
-
-    (; nlens, nλ, lasers_order, profile_order, assigned_lenslets, lenslets_models, lasers_dists, λmap, lamp_amplitudes) = A
-    
-    nλs = unique(map(lens -> lens.lasers_model.nλ, lenslets_models[assigned_lenslets]))
-    lasers_orders = unique(map(lens -> lens.lasers_model.order, lenslets_models[assigned_lenslets]))
-    profile_orders = unique(map(lens -> lens.profile_model.order, lenslets_models[assigned_lenslets]))
-    
-    length(nλs) == 1 || throw(ArgumentError)
-    length(lasers_orders) == 1 || throw(ArgumentError)
-    length(profile_orders) == 1 || throw(ArgumentError)
-    
-    bboxs_array = fill(NaN64, 4, nlens)
-
-    lasers_λrefs_array = fill(NaN64, nlens) 
-    lasers_cxs_array = fill(NaN64, lasers_order + 1, nlens)
-    lasers_cys_array = fill(NaN64, lasers_order + 1, nlens)
-    lasers_fwhms_array = fill(NaN64, nλ, nlens)
-    lasers_amplitudes_array = fill(NaN64, nλ, nlens)
-
-    profile_λrefs_array = fill(NaN64, nlens) 
-    profile_cλs_array = fill(NaN64, profile_order + 1, nlens)
-    profile_cxs_array = fill(NaN64, profile_order + 1, nlens)
-
-    for i in eachindex(lenslets_models)
-        assigned_lenslets[i] || continue
-    
-        lens = lenslets_models[i]
-        
-        bbox = lens.bbox
-        bboxs_array[:,i] .= [ bbox.xmin; bbox.xmax; bbox.ymin; bbox.ymax ]
-        
-        lasers_model = lens.lasers_model
-        lasers_λrefs_array[i] = lasers_model.λref
-        lasers_cxs_array[:,i] .= lasers_model.cxs
-        lasers_cys_array[:,i] .= lasers_model.cys
-        lasers_fwhms_array[:,i] .= lasers_model.fwhms
-        lasers_amplitudes_array[:,i] .= lasers_model.amplitudes
-
-        profile_model = lens.profile_model
-        profile_λrefs_array[i] = profile_model.λref
-        profile_cλs_array[:,i] .= profile_model.cλs
-        profile_cxs_array[:,i] .= profile_model.cxs
-    end
-    
-    writefits!(filepath,
-        FitsHeader("EXTNAME" => "ASSIGNED", "NLENS" => nlens, "NLAMBDA" => nλ,
-                   "LASERS_ORDER" => lasers_order, "PROFILE_ORDER" => profile_order),
-        reshape(assigned_lenslets, Val(2)),# matrix so DS9 does not crash
-        FitsHeader("EXTNAME" => "BBOXS"), bboxs_array,
-        FitsHeader("EXTNAME" => "LASERS_LAMBDAREFS"),
-        reshape(lasers_λrefs_array, Val(2)), # matrix so DS9 does not crash
-        FitsHeader("EXTNAME" => "LASERS_CXS"), lasers_cxs_array,
-        FitsHeader("EXTNAME" => "LASERS_CYS"), lasers_cys_array,
-        FitsHeader("EXTNAME" => "LASERS_FWHMS"), lasers_fwhms_array,
-        FitsHeader("EXTNAME" => "LASERS_AMPLITUDES"), lasers_amplitudes_array,
-        FitsHeader("EXTNAME" => "PROFILE_LAMBDAREFS"),
-        reshape(profile_λrefs_array, Val(2)), # matrix so DS9 does not crash
-        FitsHeader("EXTNAME" => "PROFILE_CLAMBDAS"), profile_cλs_array,
-        FitsHeader("EXTNAME" => "PROFILE_CXS"), profile_cxs_array,
-        FitsHeader("EXTNAME" => "LASER_DIST"), lasers_dists,
-        FitsHeader("EXTNAME" => "LAMBDA_MAP"), λmap,
-        FitsHeader("EXTNAME" => "LAMP_AMPLITUDE"), lamp_amplitudes
-    )
-end
-
 function importe(filepath)
     FitsFile(filepath) do fits
+
+        hdu = fits["PIC_DATA"]
+
+        nlens = hdu["NLENS"].integer
+        nλ = hdu["NLAMBDA"].integer
+        lasers_λs = [ hdu["LASER_LAMBDA_$i"].float for i in 1:nλ ]
+        λref = hdu["LAMBDAREF"].float
+        lens_dx_lower = hdu["LENS_DX_LOWER"].integer
+        lens_dx_upper = hdu["LENS_DX_UPPER"].integer
+        lens_dy_lower = hdu["LENS_DY_LOWER"].integer
+        lens_dy_upper = hdu["LENS_DY_UPPER"].integer
+        bbox_width = hdu["BBOX_WIDTH"].integer
+        bbox_height = hdu["BBOX_HEIGHT"].integer
+        lasers_order = hdu["LASERS_ORDER"].integer
+        profile_order = hdu["PROFILE_ORDER"].integer
+        nrows_lamp_amplitudes = hdu["NROWS_LAMP_AMPLITUDE"].integer
+
+        D = read(hdu)
+
+        assigned_lenslets = BitVector(D["ASSIGNED"])
+        lenslets_models = Vector{LensletModel}(undef, nlens)
+
+        lasers_cxs = D["LASERS_CXS"]
+        lasers_cys = D["LASERS_CYS"]
+        lasers_fwhms = D["LASERS_FWHMS"]
+        lasers_amplitudes = D["LASERS_AMPLITUDES"]
+        lasers_pixels_dists = D["LASERS_PIXELS_DISTS"]
+        lasers_pixels_λs = D["LASERS_PIXELS_LAMBDAS"]
+
+        lasers_dists      = fill(NaN64, 2048, 2048)
+        λmap              = fill(NaN64, 2048, 2048)
+        lamp_amplitudes   = fill(NaN64, nrows_lamp_amplitudes, nlens)
         
-        nlens = fits[1]["NLENS"].integer
-        nλ = fits[1]["NLAMBDA"].integer
-        lasers_order = fits[1]["LASERS_ORDER"].integer
-        profile_order = fits[1]["PROFILE_ORDER"].integer
-        
-        assigned_lenslets = reshape(read(Array{Bool}, fits["ASSIGNED"]), Val(1))
-        bboxs_array = read(fits["BBOXS"])
-        lasers_λrefs_array = reshape(read(fits["LASERS_LAMBDAREFS"]), Val(1))
-        lasers_cxs_array = read(fits["LASERS_CXS"])
-        lasers_cys_array = read(fits["LASERS_CYS"])
-        lasers_fwhms_array = read(fits["LASERS_FWHMS"])
-        lasers_amplitudes_array = read(fits["LASERS_AMPLITUDES"])
-        profile_λrefs_array = reshape(read(fits["PROFILE_LAMBDAREFS"]), Val(1))
-        profile_cλs_array = read(fits["PROFILE_CLAMBDAS"])
-        profile_cxs_array = read(fits["PROFILE_CXS"])
-        
-        lenslets_models = Array{LensletModel}(undef, nlens)
         for i in 1:nlens
             assigned_lenslets[i] || continue
-        
-            bbox = BoundingBox(bboxs_array[:,i]...)
-
-            lasers_λref = lasers_λrefs_array[i]
-            lasers_cxs = lasers_cxs_array[:,i]
-            lasers_cys = lasers_cys_array[:,i]
-            lasers_fwhms = lasers_fwhms_array[:,i]
-            lasers_amplitudes = lasers_amplitudes_array[:,i]
-            lasers_model = LasersModel(
-                nλ, lasers_order, lasers_λref, lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes)
-            
-            profile_λref = profile_λrefs_array[i]
-            profile_cλs = profile_cλs_array[:,i]
-            profile_cxs = profile_cxs_array[:,i]
+            bbox = BoundingBox{Int}(; xmin=D["BBOX_XMIN"][i], xmax=D["BBOX_XMAX"][i],
+                                      ymin=D["BBOX_YMIN"][i], ymax=D["BBOX_YMAX"][i])
             profile_model = ProfileModel(
-                profile_λref, profile_order, profile_cλs, profile_cxs)
-
-            lenslets_models[i] = LensletModel(bbox, lasers_model, profile_model)
+                λref, profile_order, D["PROFILE_CLAMBDAS"][:,i], D["PROFILE_CXS"][:,i])
+            lenslets_models[i] = LensletModel(bbox, profile_model)
+            lamp_amplitudes[:,i] .= D["LAMP_AMPLITUDE"][:,i]
         end
-        
-        lasers_dists = read(fits["LASER_DIST"])
-        λmap = read(fits["LAMBDA_MAP"]);
-        lamp_amplitudes = read(fits["LAMP_AMPLITUDE"])
-        (; nlens, nλ, lasers_order, profile_order, assigned_lenslets, lenslets_models,
-         lasers_dists, λmap, lamp_amplitudes)
+
+        (; nlens, nλ, lasers_λs, λref, lens_dx_lower, lens_dx_upper, lens_dy_lower, lens_dy_upper,
+           bbox_width, bbox_height, lasers_order, profile_order, nrows_lamp_amplitudes,
+           assigned_lenslets, lenslets_models, lamp_amplitudes,
+           lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes, lasers_pixels_dists,
+           lasers_pixels_λs)
     end
 end
 
@@ -215,6 +138,10 @@ function compar(A, B)
     end
     if A.profile_order != B.profile_order
         @warn "different profile order"
+        return false
+    end
+    if (A.bbox_width, A.bbox_height) != (B.bbox_width, B.bbox_height)
+        @warn "different bbox size"
         return false
     end
 
@@ -262,40 +189,29 @@ function compar(A, B)
     errprint = 0
     for i in 1:nlens
         bothassigned[i] || continue
-        dmodelA = A.lenslets_models[i].lasers_model
-        dmodelB = B.lenslets_models[i].lasers_model
-        if !isapprox(dmodelA.λref, dmodelB.λref)
-            @warn "lens $i different lasers λref: $(dmodelA.λref) $(dmodelB.λref)"
-            eq = false
-            errprint += 1
-        end
-        if !(dmodelA.order == dmodelB.order)
-            @warn "lens $i different lasers order: $(dmodelA.order) $(dmodelB.order)"
-            eq = false
-            errprint += 1
-        end
-        for j in 1:(dmodelA.order+1)
-            if !isapprox(dmodelA.cxs[j], dmodelB.cxs[j]; rtol=0.05, atol=2)
-                @warn "lens $i different lasers cxs[$j]: ($(dmodelA.cxs[j]) != $(dmodelB.cxs[j]))"
+        
+        for j in 1:(A.lasers_order+1)
+            if !isapprox(A.lasers_cxs[j,i], B.lasers_cxs[j,i]; rtol=0.05, atol=2)
+                @warn "lens $i different lasers cxs[$j]: ($(A.lasers_cxs[j,i]) != $(B.lasers_cxs[j,i]))"
                 eq = false
                 errprint += 1
             end
-            if !isapprox(dmodelA.cys[j], dmodelB.cys[j]; rtol=0.05, atol=2)
-                @warn "lens $i different lasers cys[$j]: ($(dmodelA.cys[j]) != $(dmodelB.cys[j]))"
+            if !isapprox(A.lasers_cys[j,i], B.lasers_cys[j,i]; rtol=0.05, atol=2)
+                @warn "lens $i different lasers cys[$j]: ($(A.lasers_cys[j,i]) != $(B.lasers_cys[j,i]))"
                 eq = false
                 errprint += 1
             end
         end
         for l in 1:nλ
-            if !isapprox(dmodelA.fwhms[l], dmodelB.fwhms[l]; atol=0.05)
-                @warn "lens $i different lasers fwhms[$l]: ($(dmodelA.fwhms[l]) != $(dmodelB.fwhms[l]))"
+            if !isapprox(A.lasers_fwhms[l,i], B.lasers_fwhms[l,i]; atol=0.05)
+                @warn "lens $i different lasers fwhms[$l]: ($(A.lasers_fwhms[l,i]) != $(B.lasers_fwhms[l,i]))"
                 eq = false 
                 errprint += 1
             end
         end
         for l in 1:nλ
-            if !isapprox(dmodelA.amplitudes[l], dmodelB.amplitudes[l]; atol=2)
-                @warn "lens $i different lasers amplitudes[$l]: ($(dmodelA.amplitudes[l]) != $(dmodelB.amplitudes[l]))"
+            if !isapprox(A.lasers_amplitudes[l,i], B.lasers_amplitudes[l,i]; atol=2)
+                @warn "lens $i different lasers amplitudes[$l]: ($(A.lasers_amplitudes[l,i]) != $(B.lasers_amplitudes[l,i]))"
                 eq = false
                 errprint += 1
             end
@@ -303,6 +219,27 @@ function compar(A, B)
                 break
             end
         end
+        for y in 1:A.bbox_height, x in 1:A.bbox_width
+            if !isapprox(A.lasers_pixels_dists[x,y,i], B.lasers_pixels_dists[x,y,i]; atol=0.05, nans=true)
+                @warn "lens $i lasers_pixels_dists x $x y $y ($(A.lasers_pixels_dists[x,y,i]) != $(B.lasers_pixels_dists[x,y,i]))"
+                eq = false 
+                errprint +=1
+            end
+            if errprint >= 10
+                break
+            end
+        end
+        for y in 1:A.bbox_height, x in 1:A.bbox_width
+            if !isapprox(A.lasers_pixels_λs[x,y,i], B.lasers_pixels_λs[x,y,i]; atol=0.0001, nans=true)
+                @warn "lens $i lasers_pixels_λs x $x y $y ($(A.lasers_pixels_λs[x,y]) != $(B.lasers_pixels_λs[x,y]))"
+                eq = false 
+                errprint += 1
+            end
+            if errprint >= 10
+                break
+            end
+        end
+    
         if errprint >= 30
             @warn "too many errors for lasers, stopping"
             break
@@ -372,42 +309,5 @@ function compar(A, B)
         @warn "different lamp_amplitudes sizes"
         eq = false
     end
-
-    if (2048,2048) == size(A.lasers_dists) == size(B.lasers_dists)
-        errprint = 0
-        for y in 1:2048, x in 1:2048
-            if !isapprox(A.lasers_dists[x,y], B.lasers_dists[x,y]; atol=0.05, nans=true)
-                @warn "lasers_dists x $x y $y ($(A.lasers_dists[x,y]) != $(B.lasers_dists[x,y]))"
-                eq = false 
-                errprint +=1
-            end
-            if errprint >= 10
-                @warn "too many errors for lasers_dists, stopping searching them"
-                break
-            end
-        end
-    else
-        @warn "incorrect lasers_dists sizes"
-        eq = false
-    end
-
-    if (2048,2048) == size(A.λmap) == size(B.λmap)
-        errprint = 0
-        for y in 1:2048, x in 1:2048
-            if !isapprox(A.λmap[x,y], B.λmap[x,y]; atol=0.0001, nans=true)
-                @warn "λmap x $x y $y ($(A.λmap[x,y]) != $(B.λmap[x,y]))"
-                eq = false 
-                errprint += 1
-            end
-            if errprint >= 10
-                @warn "too many errors for λmap, stopping searching them"
-                break
-            end
-        end
-    else
-        @warn "incorrect λmap sizes"
-        eq = false 
-    end
-
     eq
 end

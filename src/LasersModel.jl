@@ -1,44 +1,4 @@
 """
-    LasersModel(λ0::Float64,order::Int32,cxs::Array{Float64,1},cys::Array{Float64,1})
-
-The lasers model giving the position of a wavelength on the detector
-* `λ0` is the reference wavelength
-* `order` is the order of the polynomials
-* `cxs` is an array of coefficients of the polynomial along the x axis
-* `cys` is an array of coefficients of the polynomial along the y axis
-"""
-struct LasersModel
-    nλ::Int
-    order::Int64  # order of the polynomial
-    λref::Float64   # reference wavelength
-    cxs::Vector{Float64} # coefficients of the polynomial along the x axis
-    cys::Vector{Float64} # coefficients of the polynomial along the y axis
-    fwhms::Vector{Float64}
-    amplitudes::Vector{Float64}
-    function LasersModel(nλ, order, λref, cxs, cys, fwhms, amplitudes)
-        nλ ≥ 2                   || throw(ArgumentError)
-        order ≥ 1                || throw(ArgumentError)
-        length(cxs) == (order+1) || throw(ArgumentError)
-        length(cys) == (order+1) || throw(ArgumentError)
-        length(fwhms) == nλ      || throw(ArgumentError)
-        length(amplitudes) == nλ || throw(ArgumentError)
-        new(nλ, order, λref, cxs, cys, fwhms, amplitudes)
-    end
-end
-
-function LasersModel(nλ::Int, order::Int, λref::Float64)
-    nλ ≥ 2    || throw(ArgumentError)
-    order ≥ 1 || throw(ArgumentError)
-    cxs = Vector{Float64}(undef, order+1)
-    cys = Vector{Float64}(undef, order+1)
-    fwhms = Vector{Float64}(undef, nλ)
-    amplitudes = Vector{Float64}(undef, nλ)
-    LasersModel(nλ, order, λref, cxs, cys, fwhms, amplitudes)
-end
-
-
-
-"""
     Lasers_LKL(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray,weight::AbstractArray)
 
 Build the likelihood function for a given lenslet
@@ -106,10 +66,6 @@ function compute_laser_center(
     x = cxs[1] + sum(cxs[2:end] .* λpo)
     y = cys[1] + sum(cys[2:end] .* λpo)
     (x, y)
-end
-
-function compute_laser_center(lm::LasersModel, λ::Float64) ::NTuple{2,Float64}
-    compute_laser_center(lm.order, lm.λref, lm.cxs, lm.cys, λ)
 end
 
 function compute_laser_image(
@@ -204,4 +160,34 @@ function compute_lasers_amplitudes(
     b = [ sum(data .* weights .* images[i]) for i in 1:3 ]
     
     amp = inv(A) * b
+end
+
+
+function compute_lasers_dists_and_λmap!(
+    λrange::AbstractVector{Float64}, bbox::BoundingBox{Int}, lasers_order::Int, λref::Float64,
+    laser_cxs::Vector{Float64}, laser_cys::Vector{Float64},
+    laser_pixels_dists::AbstractMatrix{Float64}, laser_pixels_λs::AbstractMatrix{Float64}
+) ::Nothing
+
+    previous_index = 0
+    I0 = first(CartesianIndices(bbox)) - CartesianIndex(1,1)
+    for I in CartesianIndices(bbox)
+        previous_index = max(1, previous_index-5)
+        for (index,λ) in enumerate(λrange[previous_index:end])
+            (laser_cx, laser_cy) = compute_laser_center(
+                lasers_order, λref, laser_cxs, laser_cys, λ)
+            dist_to_laser_x = (I[1] - laser_cx)
+            dist_to_laser = sqrt(dist_to_laser_x^2 + (I[2] - laser_cy)^2)
+            r = sign(dist_to_laser_x) * dist_to_laser
+            if isnan(laser_pixels_dists[I-I0]) || abs(r) < abs(laser_pixels_dists[I-I0])
+                laser_pixels_dists[I-I0] = r;
+                laser_pixels_λs[I-I0] = λ;
+            else
+                break
+            end
+            previous_index += 1
+        end
+    end
+    
+    nothing
 end

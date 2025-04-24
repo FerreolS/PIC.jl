@@ -77,8 +77,13 @@ function fitSpectralLawAndProfile(
     nrows_lamp_amplitudes = bbox_height + 1 # 1 additional cell
     
     lenslets_models = Vector{LensletModel}(undef, nlens)
-    lasers_dists      = fill(NaN64, 2048, 2048)
-    λmap              = fill(NaN64, 2048, 2048)
+    
+    lasers_cxs = fill(NaN64, lasers_order+1, nlens)
+    lasers_cys = fill(NaN64, lasers_order+1, nlens)
+    lasers_fwhms = fill(NaN64, nλ, nlens)
+    lasers_amplitudes = fill(NaN64, nλ, nlens)
+    lasers_pixels_dists = fill(NaN64, bbox_width, bbox_height, nlens)
+    lasers_pixels_λs = fill(NaN64, bbox_width, bbox_height, nlens)
     lamp_amplitudes   = fill(NaN64, nrows_lamp_amplitudes, nlens)
 
     p = Progress(nlens; showspeed=true)
@@ -92,18 +97,14 @@ function fitSpectralLawAndProfile(
             (lasers_cxy0s[i,2] - lens_dy_lower), (lasers_cxy0s[i,2] + lens_dy_upper)),
             RoundNearestTiesUp) # rounding mode to preserve bbox size
 
-        if size(bbox) != (bbox_width, bbox_height)
-            @error "bbox size $(size(bbox)) should be $((bbox_width,bbox_height))"
-            assigned_lenslets[i] = false
-            continue
-        end
+        size(bbox) == (bbox_width, bbox_height) || error()
 
         if ((bbox.xmin < 1) | (bbox.xmax > 2048) | (bbox.ymin < 1) | (bbox.ymax > 2048))
             assigned_lenslets[i] = false
             continue
         end
 
-        lenslets_models[i] = LensletModel(bbox, nλ, lasers_order, λref, profile_order);
+        lenslets_models[i] = LensletModel(bbox, nλ, λref, profile_order);
 
         # Fit Lasers
 
@@ -131,23 +132,30 @@ function fitSpectralLawAndProfile(
             continue
         end
         
-        (lens_fwhms, lens_cxs, lens_cys) = decode_lasers_lkl_fitvars(lasers_lkl.nλ, fitvars)
-        (cost, lens_amplitudes) = compute_lasers_cost_and_amplitudes(
-            lasers_lkl, lens_cxs, lens_cys, lens_fwhms)
+        (lens_lasers_fwhms, lens_lasers_cxs, lens_lasers_cys) = decode_lasers_lkl_fitvars(
+            lasers_lkl.nλ, fitvars)
+        lasers_cxs[:,i] .= lens_lasers_cxs
+        lasers_cys[:,i] .= lens_lasers_cys
+        lasers_fwhms[:,i] .= lens_lasers_fwhms
+        
+        (cost, lens_lasers_amplitudes) = compute_lasers_cost_and_amplitudes(
+            lasers_lkl, lasers_cxs[:,i], lasers_cys[:,i], lasers_fwhms[:,i])
+        lasers_amplitudes[:,i] .= lens_lasers_amplitudes
 
-        lenslets_models[i] = LensletModel(bbox,
-            LasersModel(nλ, lasers_order, λref, lens_cxs, lens_cys, lens_fwhms, lens_amplitudes),
-            lenslets_models[i].profile_model)
+        lens_lasers_pixels_dists = view(lasers_pixels_dists,:,:,i)
+        lens_lasers_pixels_λs = view(lasers_pixels_λs,:,:,i)
 
-        compute_lasers_dists_and_λmap!(λrange, lenslets_models[i], lasers_dists, λmap)
-
+        compute_lasers_dists_and_λmap!(
+            λrange, bbox, lasers_order, λref, lasers_cxs[:,i], lasers_cys[:,i],
+            lens_lasers_pixels_dists, lens_lasers_pixels_λs)
+            
         # Fit profile
         
         lens_lamp_data = view(lamp_data, bbox)
         lens_lamp_weights = view(lamp_weights, bbox)
-        profile_cxs_init = [ lenslets_models[i].lasers_model.cxs[1] ; 0 ; 0 ]
+        profile_cxs_init = [ lasers_cxs[1,i] ; 0 ; 0 ]
         profile_lkl = Profile_LKL(bbox, lenslets_models[i].profile_model,
-                                  lens_lamp_data, lens_lamp_weights, view(λmap,bbox))
+                                  lens_lamp_data, lens_lamp_weights, lens_lasers_pixels_λs)
         fitvars = encode_profile_lkl_fitvars(profile_cλs_init, profile_cxs_init)
         try
             vmlmb!(profile_lkl, fitvars
@@ -160,9 +168,8 @@ function fitSpectralLawAndProfile(
         (fit_cλs, fit_cxs) = decode_profile_lkl_fitvars(fitvars)
         updateProfileModel!(lenslets_models[i].profile_model, fit_cλs, fit_cxs)
 
-        lenslet_λmap = view(λmap, bbox)
         lenslet_rx = axes(bbox, 1)
-        profile = @. GaussianModel2(lenslets_models[i].profile_model(lenslet_λmap, lenslet_rx))
+        profile = @. GaussianModel2(lenslets_models[i].profile_model(lens_lasers_pixels_λs, lenslet_rx))
         profile ./= sum(profile; dims=1)
         lamp_amplitudes[:,i] .= updateAmplitudeAndBackground!(
             profile, lens_lamp_data, lens_lamp_weights)
@@ -173,31 +180,9 @@ function fitSpectralLawAndProfile(
     
     (; nlens, nλ, lasers_λs, λref, lasers_order, profile_order, nrows_lamp_amplitudes, lens_dx_lower, lens_dx_upper,
        lens_dy_lower, lens_dy_upper, assigned_lenslets, lenslets_models, bbox_width, bbox_height,
-       lasers_dists, λmap, lamp_amplitudes)
+       lamp_amplitudes, lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes,
+       lasers_pixels_dists, lasers_pixels_λs)
 end
 
-function compute_lasers_dists_and_λmap!(
-    λrange::AbstractVector{Float64}, lenslet::LensletModel, lasers_dists, λmap
-) ::Nothing
 
-    previous_index = 0
-    for I in CartesianIndices(lenslet.bbox)
-        previous_index = max(1, previous_index-5)
-        for (index,λ) in enumerate(λrange[previous_index:end])
-            (laser_cx, laser_cy) = compute_laser_center(lenslet.lasers_model, λ)
-            dist_to_laser_x = (I[1] - laser_cx)
-            dist_to_laser = sqrt(dist_to_laser_x^2 + (I[2] - laser_cy)^2)
-            r = sign(dist_to_laser_x) * dist_to_laser
-            if isnan(lasers_dists[I]) || abs(r) < abs(lasers_dists[I])
-                lasers_dists[I] = r;
-                λmap[I] = λ;
-            else
-                break
-            end
-            previous_index += 1
-        end
-    end
-    
-    nothing
-end
 

@@ -37,10 +37,8 @@ test_indices = [50, 194, 243, 273, 377, 416, 500, 512, 514, 591, 639, 646, 658, 
 valid_lenslets .= false
 valid_lenslets[test_indices] .= true
 
-(; nlens, nλ, lasers_order, profile_order, assigned_lenslets, lenslets_models,
-     lasers_dists, λmap, lamp_amplitudes) = 
-    fitSpectralLawAndProfile(
-        lasers_data, lasers_weights, lamp_data, lamp_weights
-        ; nλ, lasers_λs, lasers_fwhms_init, λrange, valid_lenslets,
-          lens_dx_lower, lens_dx_upper, lens_dy_lower, lens_dy_upper);
+fitSpectralLawAndProfile(
+    lasers_data, lasers_weights, lamp_data, lamp_weights
+    ; nλ, lasers_λs, lasers_fwhms_init, λrange, valid_lenslets,
+      lens_dx_lower, lens_dx_upper, lens_dy_lower, lens_dy_upper);
 
