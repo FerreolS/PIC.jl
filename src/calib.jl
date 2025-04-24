@@ -20,22 +20,6 @@ const LASERS_CY2_MEDIAN = -52.635157560302524
 
 const PROFILE_CλS_INIT = [2.3; 2.5; 2.9]
 
-"""
-    GaussianModel2(fwhm::Float64, x::AbstractArray)
-
-Compute the value at lenslets_coords sqrt(r) 1D centered Gaussian
-* `fwhm` : full-width at half maximum
-* `x`:  squared sampled lenslets_coords
-
-Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
-"""
-function GaussianModel2(fwhm::T, x::T) ::T where {T<:Real}
-    fwhm2sigma = 1 / (2 * sqrt(2 * log(2)))
-    exp(-x / (2 * (fwhm * fwhm2sigma)^2))
-end
-
-function GaussianModel2(t::NTuple{2,T}) ::T where {T<:Real} return GaussianModel2(t[1], t[2]) end
-
 function fitSpectralLawAndProfile(
     lasers_data    ::AbstractMatrix{<:Real},
     lasers_weights ::AbstractMatrix{<:Real},
@@ -62,7 +46,7 @@ function fitSpectralLawAndProfile(
     nλ ≥ 2                                                   || throw(ArgumentError)
     size(lasers_λs) == size(lasers_fwhms_init) == (nλ,)      || throw(ArgumentError)
     nlens ≥ 1                                                || throw(ArgumentError)
-    size(lasers_cxy0s) == (nlens,2)                            || throw(ArgumentError)
+    size(lasers_cxy0s) == (nlens,2)                          || throw(ArgumentError)
     lens_dx_lower ≥ 0                                        || throw(ArgumentError)
     lens_dx_upper ≥ 0                                        || throw(ArgumentError)
     lens_dy_lower ≥ 0                                        || throw(ArgumentError)
@@ -78,13 +62,13 @@ function fitSpectralLawAndProfile(
     
     lenslets_models = Vector{LensletModel}(undef, nlens)
     
-    lasers_cxs = fill(NaN64, lasers_order+1, nlens)
-    lasers_cys = fill(NaN64, lasers_order+1, nlens)
-    lasers_fwhms = fill(NaN64, nλ, nlens)
-    lasers_amplitudes = fill(NaN64, nλ, nlens)
+    lasers_cxs          = fill(NaN64, lasers_order+1, nlens)
+    lasers_cys          = fill(NaN64, lasers_order+1, nlens)
+    lasers_fwhms        = fill(NaN64, nλ, nlens)
+    lasers_amplitudes   = fill(NaN64, nλ, nlens)
     lasers_pixels_dists = fill(NaN64, bbox_width, bbox_height, nlens)
-    lasers_pixels_λs = fill(NaN64, bbox_width, bbox_height, nlens)
-    lamp_amplitudes   = fill(NaN64, nrows_lamp_amplitudes, nlens)
+    lasers_pixels_λs    = fill(NaN64, bbox_width, bbox_height, nlens)
+    lamp_amplitudes     = fill(NaN64, nrows_lamp_amplitudes, nlens)
 
     p = Progress(nlens; showspeed=true)
 

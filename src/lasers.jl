@@ -68,6 +68,22 @@ function compute_laser_center(
     (x, y)
 end
 
+"""
+    GaussianModel2(fwhm::Float64, x::AbstractArray)
+
+Compute the value at lenslets_coords sqrt(r) 1D centered Gaussian
+* `fwhm` : full-width at half maximum
+* `x`:  squared sampled lenslets_coords
+
+Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
+"""
+function GaussianModel2(fwhm::T, x::T) ::T where {T<:Real}
+    fwhm2sigma = 1 / (2 * sqrt(2 * log(2)))
+    exp(-x / (2 * (fwhm * fwhm2sigma)^2))
+end
+
+function GaussianModel2(t::NTuple{2,T}) ::T where {T<:Real} return GaussianModel2(t[1], t[2]) end
+
 function compute_laser_image(
     laser_center_x::Float64, laser_center_y::Float64, fwhm::Float64, bbox::BoundingBox{Int}
 ) ::Matrix{Float64}
