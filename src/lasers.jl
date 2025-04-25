@@ -163,10 +163,14 @@ when this equals zero, we have an expression for `amp`:
 `(2⋅Gᵀ⋅W⋅G⋅amp) - (2⋅dᵀ⋅W⋅G) = 0`
 `amp = (Gᵀ⋅W⋅G)⁻¹ ⋅ (dᵀ⋅W⋅G)`
 
-finally we define:
+so we define:
 - `A = (Gᵀ⋅W⋅G)`, a matrix of size `(nλ,nλ)`
 - `b = (dᵀ⋅W⋅G)`, a vector of size `(nλ)`
-We compute `A` and `b` in the function, inverse `A`, then we have a value for `amp`.
+
+which gives us:
+`amp = A⁻¹ ⋅ b`
+
+In the function we compute `A⁻¹` and `b`.
 """
 function compute_lasers_amplitudes(
     images::Vector{Matrix{Float64}}, data::AbstractMatrix, weights::AbstractMatrix

@@ -89,7 +89,6 @@ end
 
 function (self::Lamp_LKL)(fitvars::Vector{Float64}) ::Float64
     (cλs, cxs) = decode_lamp_lkl_fitvars(fitvars)
-#    updateProfileModel!(self.profile_model, cλs, cxs)
     bbox_rx = axes(self.bbox, 1)
     
     lamp_image = [
@@ -97,12 +96,9 @@ function (self::Lamp_LKL)(fitvars::Vector{Float64}) ::Float64
             self.order, self.λref, cλs, cxs, self.lasers_pixels_λs[x,y], bbox_rx[x]))
         for x in 1:size(self.bbox,1), y in 1:size(self.bbox,2) ]
     
-#    p = @. GaussianModel2(self.profile_model(self.lasers_pixels_λs, bbox_rx))
-#    println(size(p))
-#    error()
     lamp_image_norm = lamp_image ./ sum(lamp_image; dims=1)
-    amp = Zygote.@ignore updateAmplitudeAndBackground!(lamp_image_norm, self.data, self.weights)
-#    Zygote.@ignore self.amplitude .= amp[:]
+
+    amp = updateAmplitudeAndBackground!(lamp_image_norm, self.data, self.weights)
     return (sum(abs2,@. self.weights * (self.data - amp[1] - $(reshape(amp[2:end],1,:)) * lamp_image_norm)))
 end
 
@@ -110,26 +106,25 @@ function updateAmplitudeAndBackground!(
     profile, data::D, weights::W
 ) ::Vector{Float64} where {D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
     
-    c = @. profile *  weights
+    c = @. profile * weights
     b = @. profile * data * weights
     a = @. profile^2 * weights
-    a = reshape(sum(a; dims=1), Val(1))
-    b = reshape(sum(b; dims=1), Val(1))
-    c = reshape(sum(c; dims=1), Val(1))
-    za = (a .== 0) .|| (b .<= 0)
-    if any(za)
-        a[za] .= 1
-        b[za] .= 0
-        c[za] .= 0
-    end
+    
+    va = sum(a; dims=1)[:]
+    vb = sum(b; dims=1)[:]
+    vc = sum(c; dims=1)[:]
+    
+    za = (va .== 0) .|| (vb .<= 0)
 
-    N = length(a)
+    va2 = map(i -> za[i] ? 1 : va[i], eachindex(va))
+    vb2 = map(i -> za[i] ? 0 : vb[i], eachindex(vb))
+    vc2 = map(i -> za[i] ? 0 : vc[i], eachindex(vc))
+
+    N = length(va2)
     A = Matrix{Float64}(undef,N+1,N+1)
-    A[1,1] = sum(weights)
-    A[1,2:end] .= A[2:end,1] .= c[:]
-    A[2:end,2:end] .= diagm(a)
+    A = hcat( vcat(sum(weights), vc2), vcat(vc2', diagm(va2)) )
 
-    b = vcat(sum(data .* weights), b[:])
+    vb3 = vcat(sum(data .* weights), vb2[:])
 
-    return inv(A) * b
+    return inv(A) * vb3
 end

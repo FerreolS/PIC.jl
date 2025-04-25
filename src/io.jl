@@ -1,6 +1,6 @@
 function exporte(filepath, A)
     
-    (; nlens, nλ, lasers_λs, λref, lens_dx_lower, lens_dx_upper, lens_dy_lower, lens_dy_upper, bbox_width, bbox_height, lasers_order, lamp_order, nrows_lamp_amplitudes, assigned_lenslets, lenslets_models, lasers_dists, λmap, lamp_amplitudes, lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes, lasers_pixels_dists, lasers_pixels_λs) = A
+    (; nlens, nλ, lasers_λs, λref, lens_dx_lower, lens_dx_upper, lens_dy_lower, lens_dy_upper, bbox_width, bbox_height, lasers_order, lamp_order, nrows_lamp_amplitudes, assigned_lenslets, lenslets_models, lamp_amplitudes, lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes, lasers_pixels_dists, lasers_pixels_λs) = A
     
     FitsFile(filepath, "w!") do fits
     
