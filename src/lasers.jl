@@ -113,73 +113,83 @@ function compute_lasers_cost_and_amplitudes(
     
     model = sum(i -> laser_images[i] .* amplitudes[i], 1:lkl.nλ)
     
-    cost = sum(lkl.weights .* (lkl.data .- model).^2)
+    cost = sum(@. lkl.weights * (lkl.data - model)^2)
     
     (cost, amplitudes)
 end
 
  """
-    compute_amplitude(images::Array{Float64,3}, data::Matrix, weights::Matrix) -> Vector{Float64}
+    compute_lasers_amplitudes(
+        lasers_models::Vector{Matrix}, data::Matrix, weights::Matrix) -> amplitudes::Vector
 
-From a gaussian laser images model, and data and weights from the lasers file, compute the
-amplitude for each gaussian laser spot, for a lenslet.
+Center and FWHM of each laser spot is guessed by VMLMB. Optimal amplitude can be computed from
+them, this is what this function does.
 
 # Arguments
-- `images` is an `Array{Float64,3}` of size `(W,H,nλ)`, containing the gaussian model for each
-  laser spot, each without background and with theoretical integral equal to `1`.
-- `data` is a matrix of size `(W,H)` containing lasers data, for the lenslet bbox
-- `weights` is a matrix of size `(W,H)` containing lasers data weights, for the lenslet bbox.
-  high weight means high confidence, weight zero is for bad pixels
+- `lasers_models ::Vector{Matrix{Float64}}`: containing `nλ` matrices of size `(W, H)`, each containing
+  a gaussian model for a laser spot, without background and with amplitude `1`
+- `data ::Matrix`: of size `(W, H)`, containing lasers data, for the lenslet bbox
+- `weights ::Matrix`: of size `(W, H)`, containing lasers data weights for the lenslet
+  bbox, high weight means high confidence, weight zero is for bad pixels
+
+# Returns
+- `Vector{Float64}`: of size `nλ`, the computed amplitude for each laser
+
+# Explanation
+
+Caution: we call `W` and `H` the width and the height of the lenslet data, as we would see it
+on a monitor screen. But since we store this in a Julia matrix, `W` is actually the number of rows
+of the matrix, and `H` is actually the number of columns. This must be kept in mind while using
+matrices operators.
 
 if we define:
-- `(W,H)` as the size of the bbox of the lenslet
-- `nλ` as the number of laser images
-- `amp` as a vector of size `nλ` containing amplitudes for each gaussian laser spot
-- `model` as the sum of images multiplied by their respective amplitude:
-  `model = sum(images .* amp; dims=3)`
+- `amps` a vector of size `(nλ)` containing amplitudes for each gaussian laser spot
+- `sum_models` a matrix of size `(W, H)`, the sum of lasers models multiplied by their
+  respective amplitude:
+  `sum_models = sum(lasers_models .* amps; dims=3)`
 
 the cost function (see `Lasers_LKL`) is defined as:
-`cost = sum(weights .* (model .- data).^2)`
+`cost = sum(weights .* (sum_models .- data).^2)`
 
 if we define:
-- `G` a matrix of size `(W*H, nλ)` with `G[:,i] .= images[:,:,i]`
+- `G` a matrix of size `(W*H, nλ)` with `G[:,i] .= lasers_models[:,:,i]`
 - `d` a vector of size `(W*H)` with `d[:] .= data[:,:]`
-- `w` a vector of size `(W*H)` with `w[:] .= weights[:,:]`
-- `W` a diagonal matrix of size `(W*H,W*H)` with `W[i,i] .= w[i]`
+- `v` a vector of size `(W*H)` with `w[:] .= weights[:,:]`
+- `V` a diagonal matrix of size `(W*H, W*H)` with `V[i,i] .= v[i]`
 
 we can rewrite `cost` as:
-`cost = (G⋅amp - d)ᵀ ⋅ W ⋅ (G⋅amp - d)`
+`cost = (G⋅amps - d)ᵀ ⋅ V ⋅ (G⋅amps - d)`
 
-we want to find the `amp` value that minimizes `cost`. So we derive `cost` by vector `amp`,
+we want to find the `amps` value that minimizes `cost`. So we derive `cost` by vector `amps`,
 and look at the expression when the derived `cost` equals zero.
 
 First we rewrite `cost`:
-`cost = (G⋅amp)ᵀ⋅W⋅(G⋅amp) + (dᵀ⋅W⋅d) - 2⋅dᵀ⋅W⋅G⋅amp`
+`cost = (G⋅amps)ᵀ⋅V⋅(G⋅amps) + (dᵀ⋅V⋅d) - 2⋅dᵀ⋅V⋅G⋅amps`
 
 we derive by vector `amp`:
-`∂cost/∂amp = (2⋅Gᵀ⋅W⋅G⋅amp) - (2⋅dᵀ⋅W⋅G)`
+`∂cost/∂amps = (2⋅Gᵀ⋅V⋅G⋅amps) - (2⋅dᵀ⋅V⋅G)`
 
-when this equals zero, we have an expression for `amp`:
-`(2⋅Gᵀ⋅W⋅G⋅amp) - (2⋅dᵀ⋅W⋅G) = 0`
-`amp = (Gᵀ⋅W⋅G)⁻¹ ⋅ (dᵀ⋅W⋅G)`
+when this equals zero, we have an expression for `amps`:
+`(2⋅Gᵀ⋅V⋅G⋅amps) - (2⋅dᵀ⋅V⋅G) = 0`
+`amps = (Gᵀ⋅V⋅G)⁻¹ ⋅ (dᵀ⋅V⋅G)`
 
 so we define:
-- `A = (Gᵀ⋅W⋅G)`, a matrix of size `(nλ,nλ)`
-- `b = (dᵀ⋅W⋅G)`, a vector of size `(nλ)`
+- `A = (Gᵀ⋅V⋅G)`, a matrix of size `(nλ, nλ)`
+- `b = (dᵀ⋅V⋅G)`, a vector of size `(nλ)`
 
 which gives us:
-`amp = A⁻¹ ⋅ b`
+`amps = A⁻¹ ⋅ b`
 
 In the function we compute `A⁻¹` and `b`.
 """
 function compute_lasers_amplitudes(
-    images::Vector{Matrix{Float64}}, data::AbstractMatrix, weights::AbstractMatrix
+    lasers_models::Vector{Matrix{Float64}}, data::AbstractMatrix, weights::AbstractMatrix
 ) ::Vector{Float64}
     
-    A = [ sum(images[i] .* weights .* images[j]) for i in 1:3, j in 1:3 ]
-    b = [ sum(data .* weights .* images[i]) for i in 1:3 ]
+    A = [ sum(lasers_models[i] .* weights .* lasers_models[j]) for i in 1:3, j in 1:3 ]
+    b = [ sum(data .* weights .* lasers_models[i]) for i in 1:3 ]
     
-    amp = inv(A) * b
+    amps = inv(A) * b
 end
 
 

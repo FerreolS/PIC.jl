@@ -58,8 +58,6 @@ function fitSpectralLawAndProfile(
     bbox_width  = lens_dx_lower + 1 + lens_dx_upper
     bbox_height = lens_dy_lower + 1 + lens_dy_upper
 
-    nrows_lamp_amplitudes = bbox_height + 1 # 1 additional cell
-    
     lenslets_models = Vector{LensletModel}(undef, nlens)
     
     lasers_cxs          = fill(NaN64, lasers_order+1, nlens)
@@ -68,7 +66,10 @@ function fitSpectralLawAndProfile(
     lasers_amplitudes   = fill(NaN64, nλ, nlens)
     lasers_pixels_dists = fill(NaN64, bbox_width, bbox_height, nlens)
     lasers_pixels_λs    = fill(NaN64, bbox_width, bbox_height, nlens)
-    lamp_amplitudes     = fill(NaN64, nrows_lamp_amplitudes, nlens)
+    lamp_cλs            = fill(NaN64, lamp_order+1, nlens)
+    lamp_cxs            = fill(NaN64, lamp_order+1, nlens)
+    lamp_backs          = fill(NaN64, nlens)
+    lamp_amplitudes    = fill(NaN64, bbox_height, nlens)
 
     p = Progress(nlens; showspeed=true)
 
@@ -116,29 +117,29 @@ function fitSpectralLawAndProfile(
             continue
         end
         
-        (lens_lasers_fwhms, lens_lasers_cxs, lens_lasers_cys) = decode_lasers_lkl_fitvars(
+        (fit_lasers_fwhms, fit_lasers_cxs, fit_lasers_cys) = decode_lasers_lkl_fitvars(
             lasers_lkl.nλ, fitvars)
             
-        (cost, lens_lasers_amplitudes) = compute_lasers_cost_and_amplitudes(
-            lasers_lkl, lens_lasers_cxs, lens_lasers_cys, lens_lasers_fwhms)
+        (cost, fit_lasers_amplitudes) = compute_lasers_cost_and_amplitudes(
+            lasers_lkl, fit_lasers_cxs, fit_lasers_cys, fit_lasers_fwhms)
             
-        lasers_cxs[:,i] .= lens_lasers_cxs
-        lasers_cys[:,i] .= lens_lasers_cys
-        lasers_fwhms[:,i] .= lens_lasers_fwhms
-        lasers_amplitudes[:,i] .= lens_lasers_amplitudes
+        lasers_cxs[:,i] .= fit_lasers_cxs
+        lasers_cys[:,i] .= fit_lasers_cys
+        lasers_fwhms[:,i] .= fit_lasers_fwhms
+        lasers_amplitudes[:,i] .= fit_lasers_amplitudes
 
         lens_lasers_pixels_dists = view(lasers_pixels_dists,:,:,i)
         lens_lasers_pixels_λs = view(lasers_pixels_λs,:,:,i)
 
         compute_lasers_dists_and_λmap!(
-            λrange, bbox, lasers_order, λref, lens_lasers_cxs, lens_lasers_cys,
+            λrange, bbox, lasers_order, λref, fit_lasers_cxs, fit_lasers_cys,
             lens_lasers_pixels_dists, lens_lasers_pixels_λs)
             
         # Fit profile
         
         lens_lamp_data = view(lamp_data, bbox)
         lens_lamp_weights = view(lamp_weights, bbox)
-        lamp_cxs_init = [ lens_lasers_cxs[1] ; 0 ; 0 ]
+        lamp_cxs_init = [ fit_lasers_cxs[1] ; 0 ; 0 ]
         lamp_lkl = Lamp_LKL(lamp_order, λref, bbox, lens_lasers_pixels_λs,
                                   lens_lamp_data, lens_lamp_weights)
         fitvars = encode_lamp_lkl_fitvars(lamp_cλs_init, lamp_cxs_init)
@@ -150,23 +151,28 @@ function fitSpectralLawAndProfile(
             assigned_lenslets[i] = false
             continue
         end
-        (fit_cλs, fit_cxs) = decode_lamp_lkl_fitvars(fitvars)
-        updateProfileModel!(lenslets_models[i].lamp_model, fit_cλs, fit_cxs)
+        (fit_lamp_cλs, fit_lamp_cxs) = decode_lamp_lkl_fitvars(fitvars)
+        updateProfileModel!(lenslets_models[i].lamp_model, fit_lamp_cλs, fit_lamp_cxs)
+
 
         lenslet_rx = axes(bbox, 1)
         profile = @. GaussianModel2(lenslets_models[i].lamp_model(lens_lasers_pixels_λs, lenslet_rx))
         profile ./= sum(profile; dims=1)
-        lamp_amplitudes[:,i] .= updateAmplitudeAndBackground!(
+        lamp_cλs[:,i] .= fit_lamp_cλs
+        lamp_cxs[:,i] .= fit_lamp_cxs
+        (fit_lamp_back, fit_lamp_amplitudes) = compute_lamp_backs_and_amps(
             profile, lens_lamp_data, lens_lamp_weights)
+        lamp_backs[i] = fit_lamp_back
+        lamp_amplitudes[:,i] .= fit_lamp_amplitudes
             
         next!(p)
     end
     ProgressMeter.finish!(p)
     
-    (; nlens, nλ, lasers_λs, λref, lasers_order, lamp_order, nrows_lamp_amplitudes, lens_dx_lower, lens_dx_upper,
+    (; nlens, nλ, lasers_λs, λref, lasers_order, lamp_order, lens_dx_lower, lens_dx_upper,
        lens_dy_lower, lens_dy_upper, assigned_lenslets, lenslets_models, bbox_width, bbox_height,
-       lamp_amplitudes, lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes,
-       lasers_pixels_dists, lasers_pixels_λs)
+       lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes,
+       lasers_pixels_dists, lasers_pixels_λs, lamp_backs, lamp_amplitudes)
 end
 
 
