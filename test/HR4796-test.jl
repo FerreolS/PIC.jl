@@ -25,10 +25,10 @@ good_pixels = readfits("test/HR_4796-HD_95086/IFS_BP_corrected.fits")
 lasers_weights = good_pixels
 lamp_weights = good_pixels
 
-lens_dx_lower = PIC.LENS_DX_LOWER
-lens_dx_upper = PIC.LENS_DX_UPPER
-lens_dy_lower = PIC.LENS_DY_LOWER
-lens_dy_upper = PIC.LENS_DY_UPPER
+bbox_dx_lower = PIC.BBOX_DX_LOWER_DEFAULT
+bbox_dx_upper = PIC.BBOX_DX_UPPER_DEFAULT
+bbox_dy_lower = PIC.BBOX_DY_LOWER_DEFAULT
+bbox_dy_upper = PIC.BBOX_DY_UPPER_DEFAULT
 
 valid_lenslets = trues(PIC.NLENS)
 
@@ -40,5 +40,5 @@ valid_lenslets[test_indices] .= true
 fitSpectralLawAndProfile(
     lasers_data, lasers_weights, lamp_data, lamp_weights
     ; nλ, lasers_λs, lasers_fwhms_init, λrange, valid_lenslets,
-      lens_dx_lower, lens_dx_upper, lens_dy_lower, lens_dy_upper);
+      bbox_dx_lower, bbox_dx_upper, bbox_dy_lower, bbox_dy_upper);
 

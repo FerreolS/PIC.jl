@@ -32,29 +32,29 @@ function Lasers_LKL(
     Lasers_LKL{D,W}(nλ, order, lasers_λs, λref, bbox, data, weights)
 end
 
-function encode_lasers_lkl_fitvars(
+function encode_lasers_lkl_vmlmbvars(
     fwhms::Vector{Float64}, cxs::Vector{Float64}, cys::Vector{Float64}
 ) ::Vector{Float64}
-    fitvars = Float64[]
-    append!(fitvars, fwhms)
+    vmlmbvars = Float64[]
+    append!(vmlmbvars, fwhms)
     for i in 1:length(cxs)
-        push!(fitvars, cxs[i])
-        push!(fitvars, cys[i])
+        push!(vmlmbvars, cxs[i])
+        push!(vmlmbvars, cys[i])
     end
-    fitvars
+    vmlmbvars
 end
 
-function decode_lasers_lkl_fitvars(
-    nλ::Int, fitvars::Vector{Float64}
+function decode_lasers_lkl_vmlmbvars(
+    nλ::Int, vmlmbvars::Vector{Float64}
 ) ::NTuple{3,Vector{Float64}}
-    fwhms = fitvars[1:nλ]
-    cxs  = fitvars[ (nλ+1) : 2 : (end-1) ]
-    cys  = fitvars[ (nλ+2) : 2 :  end    ]
+    fwhms = vmlmbvars[1:nλ]
+    cxs  = vmlmbvars[ (nλ+1) : 2 : (end-1) ]
+    cys  = vmlmbvars[ (nλ+2) : 2 :  end    ]
     (fwhms, cxs, cys)
 end
 
-function (self::Lasers_LKL)(fitvars::Vector{Float64}) ::Float64
-    (fwhms, cxs, cys) = decode_lasers_lkl_fitvars(self.nλ, fitvars)
+function (self::Lasers_LKL)(vmlmbvars::Vector{Float64}) ::Float64
+    (fwhms, cxs, cys) = decode_lasers_lkl_vmlmbvars(self.nλ, vmlmbvars)
     (cost, amplitudes) = compute_lasers_cost_and_amplitudes(self, cxs, cys, fwhms)
     cost
 end

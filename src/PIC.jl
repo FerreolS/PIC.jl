@@ -11,8 +11,7 @@ using Zygote, StaticArrays,StatsBase, LinearAlgebra, EasyFITS, TwoDimensional, P
 export fitSpectralLawAndProfile, exporte, importe, compar
 
 include("lasers.jl")
-include("ProfileModel.jl")
-include("LensletModel.jl")
+include("lamps.jl")
 include("calib.jl")
 include("io.jl")
 
