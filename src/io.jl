@@ -1,7 +1,8 @@
 function exporte(filepath::String, A::NamedTuple) ::Nothing
     
-    (; nλ, lasers_λs, λref, bbox_dx_lower, bbox_dx_upper, bbox_dy_lower, bbox_dy_upper, bbox_width, bbox_height, lasers_order, lamp_order, assigned_lenslets, lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes, lasers_pixels_dists, lasers_pixels_λs,
-    lamp_backs, lamp_amplitudes, bboxes, lamp_cfwhms, lamp_cxs) = A
+    (; nλ, lasers_λs, λref, lasers_order, lamp_order, assigned_lenslets, lasers_cxs, lasers_cys,
+      lasers_fwhms, lasers_amplitudes, lasers_pixels_dists, lasers_pixels_λs,
+      lamp_backs, lamp_amplitudes, bboxes, lamp_cfwhms, lamp_cxs) = A
     
     FitsFile(filepath, "w!") do fits
     
@@ -14,12 +15,12 @@ function exporte(filepath::String, A::NamedTuple) ::Nothing
             "LASERS_CYS" => (Float64, lasers_order+1),
             "LASERS_FWHMS" => (Float64, nλ),
             "LASERS_AMPLITUDES" => (Float64, nλ),
-            "LASERS_PIXELS_DISTS" => (Float64, (bbox_width, bbox_height)),
-            "LASERS_PIXELS_LAMBDAS" => (Float64, (bbox_width, bbox_height)),
+            "LASERS_PIXELS_DISTS" => (Float64, (BBOX_WIDTH, BBOX_HEIGHT)),
+            "LASERS_PIXELS_LAMBDAS" => (Float64, (BBOX_WIDTH, BBOX_HEIGHT)),
             "LAMP_CFWHMS" => (Float64, lamp_order+1),
             "LAMP_CXS" => (Float64, lamp_order+1),
             "LAMP_BACKS" => Float64,
-            "LAMP_AMPLITUDES" => (Float64, bbox_height))
+            "LAMP_AMPLITUDES" => (Float64, BBOX_HEIGHT))
             
         hdu["EXTNAME"] = "PIC_DATA"
         hdu["PIC_PACKAGE_VERSION"] = string(pkgversion(PIC))
@@ -29,12 +30,6 @@ function exporte(filepath::String, A::NamedTuple) ::Nothing
             hdu["LASER_LAMBDA_$i"] = λ
         end
         hdu["LAMBDAREF"] = λref
-        hdu["BBOX_DX_LOWER"] = bbox_dx_lower
-        hdu["BBOX_DX_UPPER"] = bbox_dx_upper
-        hdu["BBOX_DY_LOWER"] = bbox_dy_lower
-        hdu["BBOX_DY_UPPER"] = bbox_dy_upper
-        hdu["BBOX_WIDTH"] = bbox_width
-        hdu["BBOX_HEIGHT"] = bbox_height
         hdu["LASERS_ORDER"] = lasers_order
         hdu["PROFILE_ORDER"] = lamp_order
         
@@ -63,12 +58,6 @@ function importe(filepath)
         nλ = hdu["NLAMBDA"].integer
         lasers_λs = [ hdu["LASER_LAMBDA_$i"].float for i in 1:nλ ]
         λref = hdu["LAMBDAREF"].float
-        bbox_dx_lower = hdu["BBOX_DX_LOWER"].integer
-        bbox_dx_upper = hdu["BBOX_DX_UPPER"].integer
-        bbox_dy_lower = hdu["BBOX_DY_LOWER"].integer
-        bbox_dy_upper = hdu["BBOX_DY_UPPER"].integer
-        bbox_width = hdu["BBOX_WIDTH"].integer
-        bbox_height = hdu["BBOX_HEIGHT"].integer
         lasers_order = hdu["LASERS_ORDER"].integer
         lamp_order = hdu["PROFILE_ORDER"].integer
 
@@ -85,8 +74,7 @@ function importe(filepath)
         lamp_backs = D["LAMP_BACKS"]
         lamp_amplitudes = D["LAMP_AMPLITUDES"]
 
-        (; nλ, lasers_λs, λref, bbox_dx_lower, bbox_dx_upper, bbox_dy_lower, bbox_dy_upper,
-           bbox_width, bbox_height, lasers_order, lamp_order,
+        (; nλ, lasers_λs, λref, lasers_order, lamp_order,
            assigned_lenslets, bboxes,
            lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes, lasers_pixels_dists,
            lasers_pixels_λs, lamp_backs, lamp_amplitudes)
@@ -108,10 +96,9 @@ function compar(A, B)
         @warn "different profile order"
         return false
     end
-    if (A.bbox_width, A.bbox_height) != (B.bbox_width, B.bbox_height)
-        @warn "different bbox size"
-        return false
-    end
+    
+    bbox_width  = size(first(A.bboxes),1)
+    bbox_height = size(first(A.bboxes),2)
 
     nλ = A.nλ
     
@@ -176,7 +163,7 @@ function compar(A, B)
             end
         end
         
-        for y in 1:A.bbox_height, x in 1:A.bbox_width
+        for y in 1:bbox_height, x in 1:bbox_width
             if !isapprox(A.lasers_pixels_dists[x,y,i], B.lasers_pixels_dists[x,y,i]; atol=0.05, nans=true)
                 @warn "lens $i lasers_pixels_dists x $x y $y ($(A.lasers_pixels_dists[x,y,i]) != $(B.lasers_pixels_dists[x,y,i]))"
                 eq = false 
@@ -187,7 +174,7 @@ function compar(A, B)
             end
         end
         
-        for y in 1:A.bbox_height, x in 1:A.bbox_width
+        for y in 1:bbox_height, x in 1:bbox_width
             if !isapprox(A.lasers_pixels_λs[x,y,i], B.lasers_pixels_λs[x,y,i]; atol=0.0001, nans=true)
                 @warn "lens $i lasers_pixels_λs x $x y $y ($(A.lasers_pixels_λs[x,y]) != $(B.lasers_pixels_λs[x,y]))"
                 eq = false 
@@ -204,7 +191,7 @@ function compar(A, B)
         end
     end
     
-    if (NLENS,) == size(A.lamp_backs) == size(B.lamp_backs)
+    if size(A.lamp_backs) == size(B.lamp_backs)
         errprint = 0
         for i in 1:NLENS
             bothassigned[i] || continue
@@ -223,11 +210,11 @@ function compar(A, B)
         eq = false
     end
     
-    if (A.bbox_height,NLENS) == size(A.lamp_amplitudes) == size(B.lamp_amplitudes)
+    if size(A.lamp_amplitudes) == size(B.lamp_amplitudes)
         errprint = 0
         for i in 1:NLENS
             bothassigned[i] || continue
-            for r in 1:A.bbox_height
+            for r in 1:bbox_height
                 if !isapprox(A.lamp_amplitudes[r,i], B.lamp_amplitudes[r,i]; atol=1, rtol=0.01, nans=true)
                     @warn "lamp_amplitudes lens $i row $r ($(A.lamp_amplitudes[r,i]) != $(B.lamp_amplitudes[r,i]))"
                     eq = false

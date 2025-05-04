@@ -1,3 +1,29 @@
+function fit_lens_lamp(
+    bbox ::BoundingBox{Int},
+    lens_lamp_data        ::AbstractMatrix{<:Real},
+    lens_lamp_weights     ::AbstractMatrix{<:Real},
+    lens_lasers_pixels_λs ::AbstractMatrix{<:Real},
+    ; lamp_order ::Int,
+      λref ::Float64,
+      lamp_cfwhms_init ::Vector{Float64},
+      lamp_cxs_init    ::Vector{Float64}
+) ::Tuple{Vector{Float64},Vector{Float64},Float64,Vector{Float64}}
+
+    lamp_lkl = Lamp_LKL(lamp_order, λref, bbox, lens_lasers_pixels_λs,
+                                lens_lamp_data, lens_lamp_weights)
+
+    vmlmbvars = encode_lamp_lkl_vmlmbvars(lamp_cfwhms_init, lamp_cxs_init)
+
+    vmlmb!(lamp_lkl, vmlmbvars; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
+    
+    (fit_cfwhms, fit_cxs) = decode_lamp_lkl_vmlmbvars(vmlmbvars)
+
+    (cost, fit_back, fit_amplitudes) = compute_lamp_cost_and_back_and_amplitudes(
+        lamp_lkl, fit_cfwhms, fit_cxs)
+
+    (fit_cfwhms, fit_cxs, fit_back, fit_amplitudes)
+end
+
 function compute_lamp_fwhm_and_center_x(
     order::Int, λref::Float64, cfwhms::AbstractVector{Float64}, cxs::AbstractVector{Float64},
     λ::Float64, x::Int

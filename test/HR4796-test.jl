@@ -12,9 +12,7 @@ ENV["JULIA_DEBUG"] = Main.PIC
 
 # wavelengths
 nλ = 3
-lasers_λs = PIC.LASERS_λS[1:nλ]
 lasers_fwhms_init = PIC.LASERS_FWHMS_INIT[1:nλ]
-λrange = PIC.λRANGE
 
 lasers_data = readfits("test/HR_4796-HD_95086/IFS_calib_wave_corrected.fits")
 lamp_data   = readfits("test/HR_4796-HD_95086/IFS_calib_spec_corrected.fits")
@@ -25,11 +23,6 @@ good_pixels = readfits("test/HR_4796-HD_95086/IFS_BP_corrected.fits")
 lasers_weights = good_pixels
 lamp_weights = good_pixels
 
-bbox_dx_lower = PIC.BBOX_DX_LOWER_DEFAULT
-bbox_dx_upper = PIC.BBOX_DX_UPPER_DEFAULT
-bbox_dy_lower = PIC.BBOX_DY_LOWER_DEFAULT
-bbox_dy_upper = PIC.BBOX_DY_UPPER_DEFAULT
-
 valid_lenslets = trues(PIC.NLENS)
 
 # testing on a small subset for dev
@@ -39,6 +32,5 @@ valid_lenslets[test_indices] .= true
 
 fitSpectralLawAndProfile(
     lasers_data, lasers_weights, lamp_data, lamp_weights
-    ; nλ, lasers_λs, lasers_fwhms_init, λrange, valid_lenslets,
-      bbox_dx_lower, bbox_dx_upper, bbox_dy_lower, bbox_dy_upper);
+    ; nλ, lasers_fwhms_init, valid_lenslets);
 

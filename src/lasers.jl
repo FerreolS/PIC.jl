@@ -1,3 +1,31 @@
+function fit_lens_lasers(
+    bbox ::BoundingBox{Int},
+    lens_lasers_data    ::AbstractMatrix{<:Real},
+    lens_lasers_weights ::AbstractMatrix{<:Real},
+    ; nλ ::Int,
+      lasers_λs ::Vector{Float64},
+      λref ::Float64,
+      lasers_order ::Int,
+      lasers_fwhms_init ::Vector{Float64},
+      lasers_cxs_init   ::Vector{Float64},
+      lasers_cys_init   ::Vector{Float64}
+) ::NTuple{4,Vector{Float64}}
+      
+    lasers_lkl = Lasers_LKL(
+        nλ, lasers_order, lasers_λs, λref, bbox, lens_lasers_data, lens_lasers_weights)
+    
+    vmlmbvars = encode_lasers_lkl_vmlmbvars(lasers_fwhms_init, lasers_cxs_init, lasers_cys_init)
+
+    vmlmb!(lasers_lkl, vmlmbvars; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
+    
+    (fit_fwhms, fit_cxs, fit_cys) = decode_lasers_lkl_vmlmbvars(nλ, vmlmbvars)
+        
+    (cost, fit_amplitudes) = compute_lasers_cost_and_amplitudes(
+        lasers_lkl, fit_cxs, fit_cys, fit_fwhms)
+
+    (fit_cxs, fit_cys, fit_fwhms, fit_amplitudes)
+end
+
 """
     Lasers_LKL(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray,weight::AbstractArray)
 
@@ -221,3 +249,5 @@ function compute_lasers_dists_and_λmap!(
     
     nothing
 end
+
+
