@@ -137,8 +137,8 @@ function compute_lasers_cost_and_amplitudes(
     laser_images = compute_lasers_images(
         lkl.nλ, lkl.order, lkl.λref, cxs, cys, fwhms, lkl.lasers_λs, lkl.bbox)
 
-    amplitudes = compute_lasers_amplitudes(laser_images, lkl.data, lkl.weights)
-    
+    amplitudes = ChainRulesCore.@ignore_derivatives compute_lasers_amplitudes(laser_images, lkl.data, lkl.weights)
+
     model = sum(i -> laser_images[i] .* amplitudes[i], 1:lkl.nλ)
     
     cost = sum(@. lkl.weights * (lkl.data - model)^2)

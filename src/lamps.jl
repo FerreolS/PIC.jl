@@ -85,7 +85,7 @@ function compute_lamp_cost_and_back_and_amplitudes(
 
     lamp_image_norm = lamp_image ./ sum(lamp_image; dims=1)
 
-    (back, amplitudes...) = compute_lamp_backs_and_amplitudes(
+    (back, amplitudes...) = ChainRulesCore.@ignore_derivatives compute_lamp_backs_and_amplitudes(
         lamp_image_norm, lkl.data, lkl.weights)
 
     model = @. (lamp_image_norm * amplitudes') + back

@@ -5,8 +5,8 @@
 
 module PIC
 
-using Zygote, StaticArrays,StatsBase, LinearAlgebra, EasyFITS, TwoDimensional, ProgressMeter, 
-      OptimPackNextGen, Random, DelimitedFiles
+using Zygote, StaticArrays, StatsBase, LinearAlgebra, EasyFITS, TwoDimensional, ProgressMeter,
+      OptimPackNextGen, Random, DelimitedFiles, ChainRulesCore
 
 export fitSpectralLawAndProfile, exporte, importe, compar
 
