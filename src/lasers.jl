@@ -1,30 +1,3 @@
-function fit_lens_lasers(
-    bbox ::BoundingBox{Int},
-    lens_lasers_data    ::AbstractMatrix{<:Real},
-    lens_lasers_weights ::AbstractMatrix{<:Real},
-    ; nλ ::Int,
-      lasers_λs ::Vector{Float64},
-      λref ::Float64,
-      lasers_order ::Int,
-      lasers_fwhms_init ::Vector{Float64},
-      lasers_cxs_init   ::Vector{Float64},
-      lasers_cys_init   ::Vector{Float64}
-) ::NTuple{4,Vector{Float64}}
-      
-    lasers_lkl = Lasers_LKL(
-        nλ, lasers_order, lasers_λs, λref, bbox, lens_lasers_data, lens_lasers_weights)
-    
-    vmlmbvars = encode_lasers_lkl_vmlmbvars(lasers_fwhms_init, lasers_cxs_init, lasers_cys_init)
-
-    vmlmb!(lasers_lkl, vmlmbvars; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
-    
-    (fit_fwhms, fit_cxs, fit_cys) = decode_lasers_lkl_vmlmbvars(nλ, vmlmbvars)
-        
-    (cost, fit_amplitudes) = compute_lasers_cost_and_amplitudes(
-        lasers_lkl, fit_cxs, fit_cys, fit_fwhms)
-
-    (fit_cxs, fit_cys, fit_fwhms, fit_amplitudes)
-end
 
 """
     Lasers_LKL(model::LensletModel,wavelengths::AbstractArray{<:Real,1},data::AbstractArray,weight::AbstractArray)
@@ -35,66 +8,77 @@ Build the likelihood function for a given lenslet
 * `data` : data
 * `weight`: precision (ie inverse variance) of the data
 """
-struct Lasers_LKL{D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
+@concrete struct Lasers_LKL
     nλ::Int
-    order::Int64  # order of the polynomial
-    lasers_λs::Vector{Float64}
-    λref::Float64   # reference wavelength
+    order::Int  # order of the polynomial
+    lasers_λs <: AbstractVector
+    λref <: Real   # reference wavelength
     bbox::BoundingBox{Int}
-    data::D
-    weights::W
-    function Lasers_LKL{D,W}(
-        nλ, order, lasers_λs, λref, bbox, data, weights
-    ) where {D,W}
-        length(lasers_λs) == nλ        || throw(ArgumentError)
-        size(data)       == size(bbox) || throw(ArgumentError)
-        size(weights)    == size(bbox) || throw(ArgumentError)
-        new{D,W}(nλ, order, lasers_λs, λref, bbox, data, weights)
-    end
-end
+    data <: WeightedArray
 
-function Lasers_LKL(
-    nλ::Int, order::Int64, lasers_λs::Vector{Float64}, λref::Float64, bbox::BoundingBox{Int},
-    data::D, weights::W
-) where {D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
-    Lasers_LKL{D,W}(nλ, order, lasers_λs, λref, bbox, data, weights)
 end
 
 function encode_lasers_lkl_vmlmbvars(
-    fwhms::Vector{Float64}, cxs::Vector{Float64}, cys::Vector{Float64}
-) ::Vector{Float64}
-    vmlmbvars = Float64[]
-    append!(vmlmbvars, fwhms)
-    for i in 1:length(cxs)
-        push!(vmlmbvars, cxs[i])
-        push!(vmlmbvars, cys[i])
-    end
-    vmlmbvars
+    fwhms::Vector{T}, cxs::Vector{T}, cys::Vector{T}
+) where {T<:AbstractFloat}
+    nλ = length(fwhms)
+    length(cxs) == length(cys) || throw(ArgumentError)
+    length(cxs) == nλ || throw(ArgumentError)
+    vmlmbvars = similar(fwhms, 3 * nλ)
+    vmlmbvars[1:nλ] = fwhms
+    vmlmbvars[(nλ+1):2nλ] = cxs
+    vmlmbvars[(2nλ+1):3nλ] = cys
+    return vmlmbvars
 end
 
 function decode_lasers_lkl_vmlmbvars(
-    nλ::Int, vmlmbvars::Vector{Float64}
-) ::NTuple{3,Vector{Float64}}
+    nλ::Int, vmlmbvars::AbstractVector
+)
     fwhms = vmlmbvars[1:nλ]
-    cxs  = vmlmbvars[ (nλ+1) : 2 : (end-1) ]
-    cys  = vmlmbvars[ (nλ+2) : 2 :  end    ]
-    (fwhms, cxs, cys)
+    cxs = vmlmbvars[(nλ+1):2nλ]
+    cys = vmlmbvars[(2nλ+1):3nλ]
+    return (fwhms, cxs, cys)
 end
 
-function (self::Lasers_LKL)(vmlmbvars::Vector{Float64}) ::Float64
+function (self::Lasers_LKL)(vmlmbvars::AbstractVector)
     (fwhms, cxs, cys) = decode_lasers_lkl_vmlmbvars(self.nλ, vmlmbvars)
     (cost, amplitudes) = compute_lasers_cost_and_amplitudes(self, cxs, cys, fwhms)
     cost
 end
 
+function fit_lens_lasers(
+    lasers_lkl::Lasers_LKL,
+    lasers_fwhms_init::AbstractVector,
+    lasers_cxs_init::AbstractVector,
+    lasers_cys_init::AbstractVector
+)
+
+    vmlmbvars = encode_lasers_lkl_vmlmbvars(lasers_fwhms_init, lasers_cxs_init, lasers_cys_init)
+
+
+    vmlmb!(lasers_lkl, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500, autodiff=true)
+    #xopt, info = prima(lasers_lkl, vmlmbvars; maxfun=10_000, ftarget=length(lens_lasers_data))
+    (fit_fwhms, fit_cxs, fit_cys) = decode_lasers_lkl_vmlmbvars(lasers_lkl.nλ, vmlmbvars)
+
+    (cost, fit_amplitudes) = compute_lasers_cost_and_amplitudes(
+        lasers_lkl, fit_cxs, fit_cys, fit_fwhms)
+
+    (fit_cxs, fit_cys, fit_fwhms, fit_amplitudes)
+end
+
+
 function compute_laser_center(
-    order::Int, λref::Float64, cxs::Vector{Float64}, cys::Vector{Float64}, λ::Float64
-) ::NTuple{2,Float64}
-    λpo = ((λ - λref) / λref).^(1:order)
-    center_x = cxs[1] + sum(cxs[2:end] .* λpo)
-    center_y = cys[1] + sum(cys[2:end] .* λpo)
+    order::Int, λref::Float64, cxs::AbstractVector, cys::AbstractVector, λ::Float64
+)
+    #λpo = ((λ - λref) / λref) .^ (1:order)
+    #center_x = cxs[1] + sum(cxs[2:end] .* λpo)
+    #center_y = cys[1] + sum(cys[2:end] .* λpo)
+    λpo = ((λ - λref) / λref) .^ (0:order)
+    center_x = cxs' * λpo
+    center_y = cys' * λpo
     (center_x, center_y)
 end
+
 
 """
     GaussianModel2(fwhm::Float64, x::AbstractArray)
@@ -105,48 +89,78 @@ Compute the value at lenslets_coords sqrt(r) 1D centered Gaussian
 
 Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
 """
-function GaussianModel2(fwhm::T, x::T) ::T where {T<:Real}
+function GaussianModel2(fwhm::Real, x::T)::T where {T<:Real}
     fwhm2sigma = 1 / (2 * sqrt(2 * log(2)))
     exp(-x / (2 * (fwhm * fwhm2sigma)^2))
 end
 
-function GaussianModel2(t::NTuple{2,T}) ::T where {T<:Real} return GaussianModel2(t[1], t[2]) end
+function GaussianModel2(t::NTuple{2,T})::T where {T<:Real}
+    return GaussianModel2(t[1], t[2])
+end
 
 function compute_laser_image(
-    laser_center_x::Float64, laser_center_y::Float64, fwhm::Float64, bbox::BoundingBox{Int}
-) ::Matrix{Float64}
+    laser_center_x, laser_center_y, fwhm, bbox::BoundingBox{Int}
+)
     (xs, ys) = axes(bbox)
-    sq_dists = ((xs .- laser_center_x).^2) .+ ((ys .- laser_center_y).^2)'
+    sq_dists = ((xs .- laser_center_x) .^ 2) .+ ((ys .- laser_center_y) .^ 2)'
     GaussianModel2.(fwhm, sq_dists)
 end
 
-function compute_lasers_images(
-    nλ::Int, order::Int, λref::Float64, cxs::Vector{Float64}, cys::Vector{Float64},
-    fwhms::Vector{Float64}, lasers_λs::Vector{Float64}, bbox::BoundingBox{Int}
-) ::Vector{Matrix{Float64}}
-    map(1:nλ) do i
-        (laser_center_x, laser_center_y) = compute_laser_center(order, λref, cxs, cys, lasers_λs[i])
-        matrix = compute_laser_image(laser_center_x, laser_center_y, fwhms[i], bbox)
+@generated function compute_lasers_images(
+    ::Val{N}, order::Int, λref::Float64, cxs::AbstractVector, cys::AbstractVector,
+    fwhms::AbstractVector, lasers_λs::Vector{<:AbstractFloat}, bbox::BoundingBox{Int}
+) where {N}
+    if N != 3 && N != 4
+        throw(ArgumentError("compute_lasers_images: N must be 3 or 4"))
     end
+    code = Expr(:block)
+    for i in 1:N
+        push!(code.args, quote
+            λpo = ((lasers_λs[$i] - λref) / λref) .^ (0:order)
+            $(Symbol("laser_center_x" * "$i")) = λpo' * cxs
+            $(Symbol("laser_center_y" * "$i")) = λpo' * cys
+            #  laser_center_y$i = λpo' * cys
+        end)
+    end
+    #(laser_center_x, laser_center_y) = compute_laser_center(order, λref, cxs, cys, lasers_λs[i])
+    if N == 3
+        push!(code.args, quote
+            return [compute_laser_image(laser_center_x1, laser_center_y1, fwhms[1], bbox),
+                compute_laser_image(laser_center_x2, laser_center_y2, fwhms[2], bbox),
+                compute_laser_image(laser_center_x3, laser_center_y3, fwhms[3], bbox)]
+        end)
+    elseif N == 4
+        push!(code.args, quote
+            return [compute_laser_image(laser_center_x1, laser_center_y1, fwhms[1], bbox),
+                compute_laser_image(laser_center_x2, laser_center_y2, fwhms[2], bbox),
+                compute_laser_image(laser_center_x3, laser_center_y3, fwhms[3], bbox),
+                compute_laser_image(laser_center_x4, laser_center_y4, fwhms[4], bbox)]
+        end)
+    end
+    return code
 end
 
 function compute_lasers_cost_and_amplitudes(
-    lkl::Lasers_LKL, cxs::Vector{Float64}, cys::Vector{Float64}, fwhms::Vector{Float64}
-) ::Tuple{Float64,Vector{Float64}}
+    lkl::Lasers_LKL, cxs::Vector{<:AbstractFloat}, cys::Vector{<:AbstractFloat}, fwhms::Vector{<:AbstractFloat}
+)
 
     laser_images = compute_lasers_images(
-        lkl.nλ, lkl.order, lkl.λref, cxs, cys, fwhms, lkl.lasers_λs, lkl.bbox)
+        Val(lkl.nλ), lkl.order, lkl.λref, cxs, cys, fwhms, lkl.lasers_λs, lkl.bbox)
 
-    amplitudes = ChainRulesCore.@ignore_derivatives compute_lasers_amplitudes(laser_images, lkl.data, lkl.weights)
+    amplitudes = ChainRulesCore.@ignore_derivatives compute_lasers_amplitudes(Val(lkl.nλ), laser_images, lkl.data)
 
-    model = sum(i -> laser_images[i] .* amplitudes[i], 1:lkl.nλ)
-    
-    cost = sum(@. lkl.weights * (lkl.data - model)^2)
-    
+    #model = sum(i -> laser_images[i] .* amplitudes[i], 1:lkl.nλ)
+    model = sum(laser_images .* amplitudes)
+    #model = mapreduce(x -> (.*)(x...), +, zip(laser_images, amplitudes))
+    #model = sum(laser_images .* amplitudes; dims=3)
+    #model =amplitudes' * laser_images
+
+    cost = likelihood(lkl.data, model)
+
     (cost, amplitudes)
 end
 
- """
+"""
     compute_lasers_amplitudes(
         lasers_models::Vector{Matrix}, data::Matrix, weights::Matrix) -> amplitudes::Vector
 
@@ -210,44 +224,58 @@ which gives us:
 
 In the function we compute `A⁻¹` and `b`.
 """
-function compute_lasers_amplitudes(
-    lasers_models::Vector{Matrix{Float64}}, data::AbstractMatrix, weights::AbstractMatrix
-) ::Vector{Float64}
-    
-    A = [ sum(lasers_models[i] .* weights .* lasers_models[j]) for i in 1:3, j in 1:3 ]
-    b = [ sum(data .* weights .* lasers_models[i]) for i in 1:3 ]
-    
-    amps = inv(A) * b
+function compute_lasers_amplitudes(::Val{N},
+    lasers_models::Vector{Matrix{T}}, d::WeightedArray
+) where {T<:Real,N}
+    data = get_data(d)
+    precision = get_precision(d)
+    model = [reshape(lasers_models[i], :) for i in 1:N]
+    d = view(data, :)
+    w = view(precision, :)
+
+    A = @MMatrix zeros(Float64, N, N)
+    b = @MVector zeros(Float64, N)
+
+    mw = similar(model)
+
+    @inbounds for index = 1:N
+        mw[index] = model[index] .* w
+        b[index] = mw[index]' * d
+        A[index, index] = mw[index]' * model[index]
+        for i = 1:index-1
+            A[i, index] = A[index, i] = mw[index]' * model[i]
+        end
+    end
+    return inv(A) * b
+
 end
 
 
 function compute_lasers_dists_and_λmap!(
     λrange::AbstractVector{Float64}, bbox::BoundingBox{Int}, lasers_order::Int, λref::Float64,
-    laser_cxs::Vector{Float64}, laser_cys::Vector{Float64},
-    laser_pixels_dists::AbstractMatrix{Float64}, laser_pixels_λs::AbstractMatrix{Float64}
-) ::Nothing
+    laser_cxs::Vector{<:AbstractFloat}, laser_cys::Vector{<:AbstractFloat},
+    laser_pixels_dists::AbstractMatrix{<:AbstractFloat}, laser_pixels_λs::AbstractMatrix{<:AbstractFloat}
+)::Nothing
 
     previous_index = 0
-    I0 = first(CartesianIndices(bbox)) - CartesianIndex(1,1)
+    I0 = first(CartesianIndices(bbox)) - CartesianIndex(1, 1)
     for I in CartesianIndices(bbox)
-        previous_index = max(1, previous_index-5)
-        for (index,λ) in enumerate(λrange[previous_index:end])
+        previous_index = max(1, previous_index - 5)
+        for (index, λ) in enumerate(λrange[previous_index:end])
             (laser_cx, laser_cy) = compute_laser_center(
                 lasers_order, λref, laser_cxs, laser_cys, λ)
             dist_to_laser_x = (I[1] - laser_cx)
             dist_to_laser = sqrt(dist_to_laser_x^2 + (I[2] - laser_cy)^2)
             r = sign(dist_to_laser_x) * dist_to_laser
             if isnan(laser_pixels_dists[I-I0]) || abs(r) < abs(laser_pixels_dists[I-I0])
-                laser_pixels_dists[I-I0] = r;
-                laser_pixels_λs[I-I0] = λ;
+                laser_pixels_dists[I-I0] = r
+                laser_pixels_λs[I-I0] = λ
             else
                 break
             end
             previous_index += 1
         end
     end
-    
+
     nothing
 end
-
-

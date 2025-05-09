@@ -7,6 +7,7 @@ using Revise
 using PIC
 using StatsBase
 using EasyFITS
+using WeightedData
 
 ENV["JULIA_DEBUG"] = Main.PIC
 
@@ -15,7 +16,7 @@ nλ = 3
 lasers_fwhms_init = PIC.LASERS_FWHMS_INIT[1:nλ]
 
 lasers_data = readfits("test/HR_4796-HD_95086/IFS_calib_wave_corrected.fits")
-lamp_data   = readfits("test/HR_4796-HD_95086/IFS_calib_spec_corrected.fits")
+lamp_data = readfits("test/HR_4796-HD_95086/IFS_calib_spec_corrected.fits")
 
 # 1 == good pixel, 0 == bad pixel
 good_pixels = readfits("test/HR_4796-HD_95086/IFS_BP_corrected.fits")
@@ -30,7 +31,8 @@ test_indices = [50, 194, 243, 273, 377, 416, 500, 512, 514, 591, 639, 646, 658, 
 valid_lenslets .= false
 valid_lenslets[test_indices] .= true
 
+lasers = WeightedArray(lasers_data, lasers_weights)
+lamp = WeightedArray(lamp_data, lamp_weights)
 fitSpectralLawAndProfile(
-    lasers_data, lasers_weights, lamp_data, lamp_weights
+    lasers, lamp
     ; nλ, lasers_fwhms_init, valid_lenslets);
-
