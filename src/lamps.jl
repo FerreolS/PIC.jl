@@ -1,21 +1,26 @@
-function fit_lens_lamp(
-    bbox ::BoundingBox{Int},
-    lens_lamp_data        ::AbstractMatrix{<:Real},
-    lens_lamp_weights     ::AbstractMatrix{<:Real},
-    lens_lasers_pixels_λs ::AbstractMatrix{<:Real},
-    ; lamp_order ::Int,
-      λref ::Float64,
-      lamp_cfwhms_init ::Vector{Float64},
-      lamp_cxs_init    ::Vector{Float64}
-) ::Tuple{Vector{Float64},Vector{Float64},Float64,Vector{Float64}}
 
-    lamp_lkl = Lamp_LKL(lamp_order, λref, bbox, lens_lasers_pixels_λs,
-                                lens_lamp_data, lens_lamp_weights)
+@concrete struct Lamp_LKL
+    order::Int
+    λref <: Real   # reference wavelength
+    bbox::BoundingBox{Int}
+    data <: WeightedArray
+    lens_lasers_pixels_dists <: AbstractMatrix{<:Real}
+    lasers_pixels_λs <: AbstractMatrix{<:Real}
+end
+
+
+
+
+function fit_lens_lamp(
+    lamp_lkl::Lamp_LKL,
+    lamp_cfwhms_init::Vector{Float64},
+    lamp_cxs_init::Vector{Float64}
+)
 
     vmlmbvars = encode_lamp_lkl_vmlmbvars(lamp_cfwhms_init, lamp_cxs_init)
 
-    vmlmb!(lamp_lkl, vmlmbvars; verb=false, ftol=(0.0,1e-8), maxeval=500, autodiff=true)
-    
+    vmlmb!(lamp_lkl, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500, autodiff=true)
+
     (fit_cfwhms, fit_cxs) = decode_lamp_lkl_vmlmbvars(vmlmbvars)
 
     (cost, fit_back, fit_amplitudes) = compute_lamp_cost_and_back_and_amplitudes(
@@ -25,73 +30,50 @@ function fit_lens_lamp(
 end
 
 function compute_lamp_fwhm_and_center_x(
-    order::Int, λref::Float64, cfwhms::AbstractVector{Float64}, cxs::AbstractVector{Float64},
-    λ::Float64, x::Int
-) ::NTuple{2,Float64}
-    λpo = ((λ - λref) / λref).^(1:order)
-    fwhm = cfwhms[1] + sum(cfwhms[2:end] .* λpo)
-    center_x = cxs[1] + sum(cxs[2:end] .* λpo)
+    order::Int, λref::Float64, cfwhms::AbstractVector{T}, cxs::AbstractVector{T},
+    λ::Float64, x) where {T<:Real}
+     λpo = ((λ - λref) / λref) .^ (0:order)
+    fwhm = λpo' * cfwhms
+    center_x = λpo' * cxs
     sq_dist_to_center_x = (center_x - x)^2
     (fwhm, sq_dist_to_center_x)
 end
 
-struct Lamp_LKL{L<:AbstractMatrix{<:Real},D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
-    order::Int
-    λref::Float64
-    bbox::BoundingBox{Int}
-    lasers_pixels_λs::L
-    data::D
-    weights::W
-    function Lamp_LKL{L,D,W}(order, λref, bbox, lasers_pixels_λs, data, weights) where {L,D,W}
-        size(bbox) == size(lasers_pixels_λs) || throw(ArgumentError)
-        size(bbox) == size(data)             || throw(ArgumentError)
-        size(bbox) == size(weights)          || throw(ArgumentError)
-        new{L,D,W}(order, λref, bbox, lasers_pixels_λs, data, weights)
-    end
-end
-
-function Lamp_LKL(
-    order::Int, λref::Float64, bbox::BoundingBox{Int}, lasers_pixels_λs::L, data::D, weights::W
-) where {L<:AbstractMatrix{<:Real},D<:AbstractMatrix{<:Real},W<:AbstractMatrix{<:Real}}
-    Lamp_LKL{L,D,W}(order, λref, bbox, lasers_pixels_λs, data, weights)
-end
-
-function encode_lamp_lkl_vmlmbvars(cfwhms::Vector{Float64}, cxs::Vector{Float64}) ::Matrix{Float64}
+function encode_lamp_lkl_vmlmbvars(cfwhms::Vector{T}, cxs::Vector{T}) where {T<:Real}
     vmlmbvars = hcat(cfwhms, cxs)
 end
 
-function decode_lamp_lkl_vmlmbvars(vmlmbvars::Matrix{Float64}) ::NTuple{2,AbstractVector{Float64}}
-    cfwhms = view(vmlmbvars,:,1)
-    cxs    = view(vmlmbvars,:,2)
+function decode_lamp_lkl_vmlmbvars(vmlmbvars::AbstractMatrix{<:Real})
+    cfwhms = vmlmbvars[:, 1]
+    cxs = vmlmbvars[:, 2]
     (cfwhms, cxs)
 end
 
-function (self::Lamp_LKL)(vmlmbvars::Matrix{Float64}) ::Float64
+function (self::Lamp_LKL)(vmlmbvars::AbstractMatrix{<:Real})
     (cfwhms, cxs) = decode_lamp_lkl_vmlmbvars(vmlmbvars)
     (cost, back, amps) = compute_lamp_cost_and_back_and_amplitudes(self, cfwhms, cxs)
     cost
 end
 
 function compute_lamp_cost_and_back_and_amplitudes(
-    lkl::Lamp_LKL, cfwhms::AbstractVector{Float64}, cxs::AbstractVector{Float64}
-) ::Tuple{Float64,Float64,Vector{Float64}}
-    
+    lkl::Lamp_LKL, cfwhms::AbstractVector, cxs::AbstractVector
+)
     bbox_rx = axes(lkl.bbox, 1)
-    
+
     lamp_image = [
         GaussianModel2(compute_lamp_fwhm_and_center_x(
-            lkl.order, lkl.λref, cfwhms, cxs, lkl.lasers_pixels_λs[x,y], bbox_rx[x]))
-        for x in 1:size(lkl.bbox,1), y in 1:size(lkl.bbox,2) ]
+            lkl.order, lkl.λref, cfwhms, cxs, lkl.lasers_pixels_λs[x, y], bbox_rx[x])...)
+        for x in 1:size(lkl.bbox, 1), y in 1:size(lkl.bbox, 2)]
 
     lamp_image_norm = lamp_image ./ sum(lamp_image; dims=1)
 
     (back, amplitudes...) = ChainRulesCore.@ignore_derivatives compute_lamp_backs_and_amplitudes(
-        lamp_image_norm, lkl.data, lkl.weights)
+        lamp_image_norm, lkl.data)
 
     model = @. (lamp_image_norm * amplitudes') + back
 
-    cost = sum(@. lkl.weights * (lkl.data - model)^2 )
-    
+    cost = likelihood(lkl.data, model)
+
     (cost, back, amplitudes)
 end
 
@@ -148,7 +130,7 @@ first we rewrite `cost`:
 `cost = (G⋅p)ᵀ⋅V⋅(G⋅p) + (dᵀ⋅V⋅d) - 2⋅dᵀ⋅V⋅G⋅p`
 
 we derive by vector `p`:
-`∂cost/∂p = (2⋅Gᵀ⋅V⋅G⋅p) - (2⋅dᵀ⋅V⋅G)`
+`∂cost/∂p = (2⋅Gᵀ⋅V⋅G⋅p) - (2⋅dᵀ⋅V⋅G)` 
 
 when this equals zero, we have an expression for `p`:
 `(2⋅Gᵀ⋅V⋅G⋅p) - (2⋅dᵀ⋅V⋅G) = 0`
@@ -165,18 +147,18 @@ In the function we compute `A⁻¹` and `b`, in a somehow efficient manner. A lo
 are zeros so we avoid the basic matrix operation.
 """
 function compute_lamp_backs_and_amplitudes(
-    lamp_model, data::D, weights::W
-) ::Vector{Float64} where {D<:AbstractMatrix{<:Real},
-                                                   W<:AbstractMatrix{<:Real}}
-    
+    lamp_model, data::WeightedArray
+)
+    weights = get_precision(data)
+    data = get_data(data)
     c = @. lamp_model * weights
     b = @. lamp_model * data * weights
     a = @. lamp_model^2 * weights
-    
+
     va = sum(a; dims=1)[:]
     vb = sum(b; dims=1)[:]
     vc = sum(c; dims=1)[:]
-    
+
     za = (va .== 0) .|| (vb .<= 0)
 
     va2 = map(i -> za[i] ? 1 : va[i], eachindex(va))
@@ -185,7 +167,7 @@ function compute_lamp_backs_and_amplitudes(
 
     # N = length(va2)
     # A ::Matrix{Float64}(undef,N+1,N+1)
-    A = hcat( vcat(sum(weights), vc2), vcat(vc2', diagm(va2)) )
+    A = hcat(vcat(sum(weights), vc2), vcat(vc2', diagm(va2)))
 
     vb3 = vcat(sum(data .* weights), vb2[:])
 

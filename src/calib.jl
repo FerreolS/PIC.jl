@@ -88,7 +88,7 @@ function fitSpectralLawAndProfile(
 
             (fit_lasers_cxs, fit_lasers_cys, fit_fwhms, fit_amplitudes) = fit_lens_lasers(lasers_lkl,
                 lasers_fwhms_init, lasers_cxs_init, lasers_cys_init)
-            774
+
             lasers_cxs[:, i] .= fit_lasers_cxs
             lasers_cys[:, i] .= fit_lasers_cys
             lasers_fwhms[:, i] .= fit_fwhms
@@ -109,9 +109,10 @@ function fitSpectralLawAndProfile(
 
             lamp_cxs_init = [fit_lasers_cxs[1]; 0; 0]
 
+            lamp_lkl = Lamp_LKL(lamp_order, λref, bbox, lens_lamp, lens_lasers_pixels_dists, lens_lasers_pixels_λs)
+
             (fit_lamp_cfwhms, fit_lamp_cxs, fit_lamp_back, fit_lamp_amplitudes) = fit_lens_lamp(
-                bbox, get_data(lens_lamp), get_precision(lens_lamp), lens_lasers_pixels_λs
-                ; lamp_order, λref, lamp_cfwhms_init, lamp_cxs_init)
+                lamp_lkl, lamp_cfwhms_init, lamp_cxs_init)
 
             lamp_cfwhms[:, i] .= fit_lamp_cfwhms
             lamp_cxs[:, i] .= fit_lamp_cxs

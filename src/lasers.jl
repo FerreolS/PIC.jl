@@ -56,7 +56,11 @@ function fit_lens_lasers(
     vmlmbvars = encode_lasers_lkl_vmlmbvars(lasers_fwhms_init, lasers_cxs_init, lasers_cys_init)
 
 
-    vmlmb!(lasers_lkl, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500, autodiff=true)
+    #vmlmb!(lasers_lkl, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500, autodiff=true)
+    grad = similar(vmlmbvars)
+    prep = prepare_gradient(lasers_lkl, AutoZygote(), vmlmbvars)
+    fg!(x, grad) = DifferentiationInterface.value_and_gradient!(lasers_lkl, grad, prep, AutoZygote(), x)[1]
+    vmlmb!(fg!, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500)
     #xopt, info = prima(lasers_lkl, vmlmbvars; maxfun=10_000, ftarget=length(lens_lasers_data))
     (fit_fwhms, fit_cxs, fit_cys) = decode_lasers_lkl_vmlmbvars(lasers_lkl.nλ, vmlmbvars)
 
@@ -89,12 +93,12 @@ Compute the value at lenslets_coords sqrt(r) 1D centered Gaussian
 
 Equivalent to `GaussianModel(1.,fwhm, sqrt(x))`
 """
-function GaussianModel2(fwhm::Real, x::T)::T where {T<:Real}
+function GaussianModel2(fwhm::Real, x::T) where {T<:Real}
     fwhm2sigma = 1 / (2 * sqrt(2 * log(2)))
     exp(-x / (2 * (fwhm * fwhm2sigma)^2))
 end
 
-function GaussianModel2(t::NTuple{2,T})::T where {T<:Real}
+function GaussianModel2(t::NTuple{2,T}) where {T<:Real}
     return GaussianModel2(t[1], t[2])
 end
 
@@ -141,8 +145,8 @@ end
 end
 
 function compute_lasers_cost_and_amplitudes(
-    lkl::Lasers_LKL, cxs::Vector{<:AbstractFloat}, cys::Vector{<:AbstractFloat}, fwhms::Vector{<:AbstractFloat}
-)
+    lkl::Lasers_LKL, cxs::Vector{T}, cys::Vector{T}, fwhms::Vector{T}
+) where {T<:Real}
 
     laser_images = compute_lasers_images(
         Val(lkl.nλ), lkl.order, lkl.λref, cxs, cys, fwhms, lkl.lasers_λs, lkl.bbox)
@@ -152,7 +156,6 @@ function compute_lasers_cost_and_amplitudes(
     #model = sum(i -> laser_images[i] .* amplitudes[i], 1:lkl.nλ)
     model = sum(laser_images .* amplitudes)
     #model = mapreduce(x -> (.*)(x...), +, zip(laser_images, amplitudes))
-    #model = sum(laser_images .* amplitudes; dims=3)
     #model =amplitudes' * laser_images
 
     cost = likelihood(lkl.data, model)
@@ -233,8 +236,8 @@ function compute_lasers_amplitudes(::Val{N},
     d = view(data, :)
     w = view(precision, :)
 
-    A = @MMatrix zeros(Float64, N, N)
-    b = @MVector zeros(Float64, N)
+    A = @MMatrix zeros(T, N, N)
+    b = @MVector zeros(T, N)
 
     mw = similar(model)
 
@@ -249,7 +252,6 @@ function compute_lasers_amplitudes(::Val{N},
     return inv(A) * b
 
 end
-
 
 function compute_lasers_dists_and_λmap!(
     λrange::AbstractVector{Float64}, bbox::BoundingBox{Int}, lasers_order::Int, λref::Float64,
