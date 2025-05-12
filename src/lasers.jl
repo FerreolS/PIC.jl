@@ -102,13 +102,6 @@ function GaussianModel2(t::NTuple{2,T}) where {T<:Real}
     return GaussianModel2(t[1], t[2])
 end
 
-function compute_laser_image(
-    laser_center_x, laser_center_y, fwhm, bbox::BoundingBox{Int}
-)
-    (xs, ys) = axes(bbox)
-    sq_dists = ((xs .- laser_center_x) .^ 2) .+ ((ys .- laser_center_y) .^ 2)'
-    GaussianModel2.(fwhm, sq_dists)
-end
 
 function compute_lasers_images(
     ::Val{N}, order::Int, λref::Float64, cxs::AbstractVector, cys::AbstractVector,
@@ -132,57 +125,21 @@ function compute_lasers_images(
     exp.(sq_dists .* reshape(fw, 1, 1, N))
 end
 
-
-@generated function compute_lasers_imagesx(
-    ::Val{N}, order::Int, λref::Float64, cxs::AbstractVector, cys::AbstractVector,
-    fwhms::AbstractVector, lasers_λs::Vector{<:AbstractFloat}, bbox::BoundingBox{Int}
-) where {N}
-    if N != 3 && N != 4
-        throw(ArgumentError("compute_lasers_images: N must be 3 or 4"))
-    end
-    code = Expr(:block)
-    for i in 1:N
-        push!(code.args, quote
-            λpo = ((lasers_λs[$i] - λref) / λref) .^ (0:order)
-            $(Symbol("laser_center_x" * "$i")) = λpo' * cxs
-            $(Symbol("laser_center_y" * "$i")) = λpo' * cys
-            #  laser_center_y$i = λpo' * cys
-        end)
-    end
-    #(laser_center_x, laser_center_y) = compute_laser_center(order, λref, cxs, cys, lasers_λs[i])
-    if N == 3
-        push!(code.args, quote
-            return [compute_laser_image(laser_center_x1, laser_center_y1, fwhms[1], bbox),
-                compute_laser_image(laser_center_x2, laser_center_y2, fwhms[2], bbox),
-                compute_laser_image(laser_center_x3, laser_center_y3, fwhms[3], bbox)]
-        end)
-    elseif N == 4
-        push!(code.args, quote
-            return [compute_laser_image(laser_center_x1, laser_center_y1, fwhms[1], bbox),
-                compute_laser_image(laser_center_x2, laser_center_y2, fwhms[2], bbox),
-                compute_laser_image(laser_center_x3, laser_center_y3, fwhms[3], bbox),
-                compute_laser_image(laser_center_x4, laser_center_y4, fwhms[4], bbox)]
-        end)
-    end
-    return code
-end
-
 function compute_lasers_cost_and_amplitudes(
-    lkl::Lasers_LKL, cxs::Vector{T}, cys::Vector{T}, fwhms::Vector{T}
+    (; nλ, order, λref, bbox, lasers_λs, data)::Lasers_LKL, cxs::Vector{T}, cys::Vector{T}, fwhms::Vector{T}
 ) where {T<:Real}
 
-    laser_images = compute_lasers_images(
-        Val(lkl.nλ), lkl.order, lkl.λref, cxs, cys, fwhms, lkl.lasers_λs, lkl.bbox)
+    laser_images = compute_lasers_images(Val(nλ), order, λref, cxs, cys, fwhms, lasers_λs, bbox)
 
-    amplitudes = ChainRulesCore.@ignore_derivatives compute_lasers_amplitudes(Val(lkl.nλ), laser_images, lkl.data)
+    amplitudes = ChainRulesCore.@ignore_derivatives compute_lasers_amplitudes(Val(nλ), laser_images, data)
 
     #model = sum(i -> laser_images[i] .* amplitudes[i], 1:lkl.nλ)
     #model = sum(laser_images .* amplitudes)
-    model = reshape(reshape(laser_images, :, lkl.nλ) * amplitudes, size(lkl.bbox))
+    model = reshape(reshape(laser_images, :, nλ) * amplitudes, size(lkl.bbox))
     #model = mapreduce(x -> (.*)(x...), +, zip(laser_images, amplitudes))
     #model =amplitudes' * laser_images
 
-    cost = likelihood(lkl.data, model)
+    cost = likelihood(data, model)
 
     (cost, amplitudes)
 end
