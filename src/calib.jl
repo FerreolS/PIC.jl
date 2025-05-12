@@ -57,8 +57,8 @@ function fitSpectralLawAndProfile(
     lasers_cys = fill(NaN64, lasers_order + 1, NLENS)
     lasers_fwhms = fill(NaN64, nλ, NLENS)
     lasers_amplitudes = fill(NaN64, nλ, NLENS)
-    lasers_pixels_dists = fill(NaN64, BBOX_WIDTH, BBOX_HEIGHT, NLENS)
-    lasers_pixels_λs = fill(NaN64, BBOX_WIDTH, BBOX_HEIGHT, NLENS)
+    lasers_pixels_dists = Vector{Vector{Float64}}(undef, NLENS)
+    lasers_pixels_λs = Vector{Vector{Float64}}(undef, NLENS)
     lamp_cfwhms = fill(NaN64, lamp_order + 1, NLENS)
     lamp_cxs = fill(NaN64, lamp_order + 1, NLENS)
     lamp_backs = fill(NaN64, NLENS)
@@ -77,7 +77,7 @@ function fitSpectralLawAndProfile(
         end
     end
 
-    Threads.@threads for i in findall(valid_lenslets)
+    Threads.@threads for i in findall(assigned_lenslets)
         try
 
             # lasers
@@ -103,12 +103,12 @@ function fitSpectralLawAndProfile(
             lasers_fwhms[:, i] .= fit_fwhms
             lasers_amplitudes[:, i] .= fit_amplitudes
 
-            lens_lasers_pixels_dists = view(lasers_pixels_dists, :, :, i)
-            lens_lasers_pixels_λs = view(lasers_pixels_λs, :, :, i)
+            lens_lasers_pixels_dists = fill(NaN64, BBOX_HEIGHT)
+            lens_lasers_pixels_λs = fill(NaN64, BBOX_HEIGHT)
 
 
 
-            compute_lasers_dists_and_λmap!(
+            compute_lasers_λmap!(
                 λLAMP_RANGE, bboxes[i], lasers_order, λref, fit_lasers_cxs, fit_lasers_cys,
                 lens_lasers_pixels_dists, lens_lasers_pixels_λs)
 
@@ -127,6 +127,10 @@ function fitSpectralLawAndProfile(
             lamp_cxs[:, i] .= fit_lamp_cxs
             lamp_backs[i] = fit_lamp_back
             lamp_amplitudes[:, i] .= fit_lamp_amplitudes
+
+            lasers_pixels_dists[i] = lens_lasers_pixels_dists
+            lasers_pixels_λs[i] = lens_lasers_pixels_λs
+
 
         catch e
             @debug "Error on lenslet $i" exception = (e, catch_backtrace())

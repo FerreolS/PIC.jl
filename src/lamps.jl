@@ -4,8 +4,8 @@
     λref <: Real   # reference wavelength
     bbox::BoundingBox{Int}
     data <: WeightedArray
-    lens_lasers_pixels_dists <: AbstractMatrix{<:Real}
-    lasers_pixels_λs <: AbstractMatrix{<:Real}
+    lens_lasers_pixels_dists <: AbstractVector{<:Real}
+    lasers_pixels_λs <: AbstractVector{<:Real}
 end
 
 
@@ -32,7 +32,7 @@ end
 function compute_lamp_fwhm_and_center_x(
     order::Int, λref::Float64, cfwhms::AbstractVector{T}, cxs::AbstractVector{T},
     λ::Float64, x) where {T<:Real}
-     λpo = ((λ - λref) / λref) .^ (0:order)
+    λpo = ((λ - λref) / λref) .^ (0:order)
     fwhm = λpo' * cfwhms
     center_x = λpo' * cxs
     sq_dist_to_center_x = (center_x - x)^2
@@ -56,27 +56,45 @@ function (self::Lamp_LKL)(vmlmbvars::AbstractMatrix{<:Real})
 end
 
 function compute_lamp_cost_and_back_and_amplitudes(
-    lkl::Lamp_LKL, cfwhms::AbstractVector, cxs::AbstractVector
+    (; order, λref, bbox, data, lasers_pixels_λs)::Lamp_LKL,
+    cfwhms::AbstractVector, cxs::AbstractVector
 )
-    bbox_rx = axes(lkl.bbox, 1)
+    bbox_rx = axes(bbox, 1)
 
-    lamp_image = [
-        GaussianModel2(compute_lamp_fwhm_and_center_x(
-            lkl.order, lkl.λref, cfwhms, cxs, lkl.lasers_pixels_λs[x, y], bbox_rx[x])...)
-        for x in 1:size(lkl.bbox, 1), y in 1:size(lkl.bbox, 2)]
+    lamp_image = compute_lamp_images(
+        order, λref, cfwhms, cxs, lasers_pixels_λs, bbox)
 
     lamp_image_norm = lamp_image ./ sum(lamp_image; dims=1)
 
     (back, amplitudes...) = ChainRulesCore.@ignore_derivatives compute_lamp_backs_and_amplitudes(
-        lamp_image_norm, lkl.data)
+        lamp_image_norm, data)
 
     model = @. (lamp_image_norm * amplitudes') + back
 
-    cost = likelihood(lkl.data, model)
+    cost = likelihood(data, model)
 
     (cost, back, amplitudes)
 end
 
+
+function compute_lamp_images(order::Int, λref::Float64, cfwhms::AbstractVector, cxs::AbstractVector,
+    lasers_λs::Vector{<:AbstractFloat}, bbox::BoundingBox{Int}
+)
+
+    λpo = ((lasers_λs .- λref) ./ λref) .^ reshape(0:order, 1, order + 1)
+    center_x = λpo * cxs
+
+    fwhms = λpo * cfwhms
+
+    (xs, ys) = axes(bbox)
+    sq_dists = ((xs .- center_x') .^ 2)
+
+
+
+    fwhm2sigma = 1 / (2 * sqrt(2 * log(2)))
+    fw = -1 ./ (2 .* (fwhms .* fwhm2sigma) .^ 2)
+    exp.(sq_dists .* reshape(fw, 1, :))
+end
 """
     compute_lamp_backs_and_amplitudes(
         lamp_model::Matrix, data::Matrix, weights::Matrix) -> [background, amplitudes...]
@@ -147,23 +165,23 @@ In the function we compute `A⁻¹` and `b`, in a somehow efficient manner. A lo
 are zeros so we avoid the basic matrix operation.
 """
 function compute_lamp_backs_and_amplitudes(
-    lamp_model, data::WeightedArray
-)
+    lamp_model::AbstractArray{T}, data::WeightedArray
+) where {T<:Real}
     weights = get_precision(data)
     data = get_data(data)
     c = @. lamp_model * weights
-    b = @. lamp_model * data * weights
-    a = @. lamp_model^2 * weights
+    b = @. c * data
+    a = @. lamp_model * c
 
     va = sum(a; dims=1)[:]
     vb = sum(b; dims=1)[:]
     vc = sum(c; dims=1)[:]
 
-    za = (va .== 0) .|| (vb .<= 0)
+    za = (va .== T(0)) .|| (vb .<= T(0))
 
-    va2 = map(i -> za[i] ? 1 : va[i], eachindex(va))
-    vb2 = map(i -> za[i] ? 0 : vb[i], eachindex(vb))
-    vc2 = map(i -> za[i] ? 0 : vc[i], eachindex(vc))
+    va2 = map(i -> ifelse(za[i], T(1), va[i]), eachindex(va))
+    vb2 = map(i -> ifelse(za[i], T(0), vb[i]), eachindex(vb))
+    vc2 = map(i -> ifelse(za[i], T(0), vc[i]), eachindex(vc))
 
     # N = length(va2)
     # A ::Matrix{Float64}(undef,N+1,N+1)

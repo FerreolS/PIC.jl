@@ -126,8 +126,8 @@ function compute_lasers_images(
 end
 
 function compute_lasers_cost_and_amplitudes(
-    (; nλ, order, λref, bbox, lasers_λs, data)::Lasers_LKL, cxs::Vector{T}, cys::Vector{T}, fwhms::Vector{T}
-) where {T<:Real}
+    (; nλ, order, λref, bbox, lasers_λs, data)::Lasers_LKL,
+    cxs::Vector{T}, cys::Vector{T}, fwhms::Vector{T}) where {T<:Real}
 
     laser_images = compute_lasers_images(Val(nλ), order, λref, cxs, cys, fwhms, lasers_λs, bbox)
 
@@ -269,9 +269,9 @@ end
 
 function compute_lasers_dists_and_λmap!(
     λrange::AbstractVector{Float64}, bbox::BoundingBox{Int}, lasers_order::Int, λref::Float64,
-    laser_cxs::Vector{<:AbstractFloat}, laser_cys::Vector{<:AbstractFloat},
-    laser_pixels_dists::AbstractMatrix{<:AbstractFloat}, laser_pixels_λs::AbstractMatrix{<:AbstractFloat}
-)::Nothing
+    laser_cxs::AbstractVector, laser_cys::AbstractVector,
+    laser_pixels_dists::AbstractMatrix, laser_pixels_λs::AbstractMatrix
+)
 
     previous_index = 0
     I0 = first(CartesianIndices(bbox)) - CartesianIndex(1, 1)
@@ -293,5 +293,32 @@ function compute_lasers_dists_and_λmap!(
         end
     end
 
-    nothing
+end
+
+
+function compute_lasers_λmap!(
+    λrange::AbstractVector{Float64}, bbox::BoundingBox{Int}, order::Int, λref::Float64,
+    laser_cxs::AbstractVector, laser_cys::AbstractVector,
+    laser_pixels_dists::AbstractVector, laser_pixels_λs::AbstractVector
+)
+    x = round(Int, middle(axes(bbox, 1)))
+    previous_index = 0
+
+    for (ny, y) in enumerate(axes(bbox, 2))
+        previous_index = max(1, previous_index - 5)
+        for (index, λ) in enumerate(λrange[previous_index:end])
+
+            λpo = ((λ - λref) / λref) .^ (0:order)
+            laser_cy = laser_cys' * λpo
+            dist_to_laser = abs(y - laser_cy)
+            if isnan(laser_pixels_dists[ny]) || abs(dist_to_laser) < abs(laser_pixels_dists[ny])
+                laser_pixels_dists[ny] = dist_to_laser
+                laser_pixels_λs[ny] = λ
+            else
+                break
+            end
+            previous_index += 1
+        end
+    end
+
 end
