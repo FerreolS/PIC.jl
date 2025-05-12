@@ -1,52 +1,51 @@
-const NLENS = 18908
+using Parameters
 
-const LASERS_ORDER_DEFAULT = 2
+@with_kw struct PICParams{R<:Real,Q}
+    @deftype R
+    nλ::Int = 3
+    @assert (nλ == 3 || nλ == 4)
+    NLENS::Int = 18908
+    @assert NLENS ≥ 1
+    lasers_order::Int = 2
+    @assert lasers_order ≥ 1
+    lasers_λs::Vector{R} = [987.72e-9, 1123.71e-9, 1309.37e-9, 1545.10e-9][1:nλ]
+    LASERS_CXY0S_INIT_PATH::String = joinpath(dirname(pathof(PIC)), "lasers_cxy0s_init.txt")
+    lasers_cxy0s_init::Matrix{R} = readdlm(LASERS_CXY0S_INIT_PATH, Float64)
+    @assert size(lasers_cxy0s_init) == (NLENS, 2)
+    @assert all(isfinite.(lasers_cxy0s_init))
+    LASERS_CX1_INIT = -0.6001811340726275
+    LASERS_CX2_INIT = -0.3187688427580339
+    LASERS_CY1_INIT = 89.9795748752424
+    LASERS_CY2_INIT = -52.635157560302524
 
-const LASERS_4_λS = [987.72e-9, 1123.71e-9, 1309.37e-9, 1545.10e-9]
-const LASERS_3_λS = LASERS_4_λS[1:3]
+    lasers_fwhms_init::Vector{R} = [2.3, 2.4, 2.7, 2.9][1:nλ]
+    @assert length(lasers_fwhms_init) == nλ
+    lamp_order::Int = 2
 
-const LASERS_CXY0S_INIT_PATH = joinpath(dirname(pathof(PIC)), "lasers_cxy0s_init.txt")
-const LASERS_CXY0S_INIT = readdlm(LASERS_CXY0S_INIT_PATH, Float64)
-const LASERS_CX1_INIT = -0.6001811340726275
-const LASERS_CX2_INIT = -0.3187688427580339
-const LASERS_CY1_INIT = 89.9795748752424
-const LASERS_CY2_INIT = -52.635157560302524
+    λLAMP_RANGE::Q = LinRange(850e-9, 1600e-9, 10000) # coarse wavelength range of the instrument
 
-const LASERS_FWHMS_INIT = [2.3, 2.4, 2.7]
+    lamp_cfwhms_init::Vector{R} = [2.5, 0, 0, 0][1:(lamp_order+1)]
 
-const LAMP_ORDER_DEFAULT = 2
+    BBOX_DX_LOWER::Int = 2
+    BBOX_DX_UPPER::Int = 2
+    BBOX_DY_LOWER::Int = 21
+    BBOX_DY_UPPER::Int = 18
+    BBOX_WIDTH::Int = BBOX_DX_LOWER + 1 + BBOX_DX_UPPER
+    BBOX_HEIGHT::Int = BBOX_DY_LOWER + 1 + BBOX_DY_UPPER
 
-const λLAMP_RANGE = LinRange(850e-9, 1600e-9, 10000) # coarse wavelength range of the instrument
-
-const LAMP_CFWHMS_INIT = [2.3, 2.5, 2.9]
-
-const BBOX_DX_LOWER = 2
-const BBOX_DX_UPPER = 2
-const BBOX_DY_LOWER = 21
-const BBOX_DY_UPPER = 18
-const BBOX_WIDTH = BBOX_DX_LOWER + 1 + BBOX_DX_UPPER
-const BBOX_HEIGHT = BBOX_DY_LOWER + 1 + BBOX_DY_UPPER
+end
 
 function fitSpectralLawAndProfile(
     lasers::WeightedArray,
     lamp::WeightedArray,
-    ; nλ::Int,
-    lasers_fwhms_init::Vector{Float64},
-    lasers_order::Int=LASERS_ORDER_DEFAULT,
-    lasers_cxy0s_init::Matrix{Float64}=LASERS_CXY0S_INIT,
-    lamp_order::Int=LAMP_ORDER_DEFAULT,
-    lamp_cfwhms_init::Vector{Float64}=LAMP_CFWHMS_INIT,
+    ; calib_params::PICParams,
     valid_lenslets::AbstractVector{Bool}=trues(NLENS)
 )
-    NLENS ≥ 1 || throw(ArgumentError)
-    nλ ≥ 2 || throw(ArgumentError)
-    size(lasers_fwhms_init) == (nλ,) || throw(ArgumentError)
-    size(lasers_cxy0s_init) == (NLENS, 2) || throw(ArgumentError)
-    lamp_order ≥ 1 || throw(ArgumentError)
-    length(lamp_cfwhms_init) == lamp_order + 1 || throw(ArgumentError)
-    size(valid_lenslets) == (NLENS,) || throw(ArgumentError)
+    @unpack_CalibParams calib_params
 
-    lasers_λs = (nλ == 4) ? LASERS_4_λS : (nλ == 3) ? LASERS_3_λS : throw(ArgumentError)
+
+    size(valid_lenslets) == (NLENS,) || throw(ArgumentError("valid_lenslets must be of size NLENS"))
+
     λref = mean(lasers_λs)
 
     bboxes = fill(BoundingBox{Int}(-1, -1, -1, -1), NLENS)
@@ -63,17 +62,23 @@ function fitSpectralLawAndProfile(
 
     p = Progress(NLENS; showspeed=true)
 
-    assigned_lenslets = copy(valid_lenslets)
+    assigned_lenslets = falses(NLENS)
+
+    @inbounds for i in findall(valid_lenslets)
+
+        bbox = get_bbox(lasers_cxy0s_init[i, 1], lasers_cxy0s_init[i, 2])
+        if !ismissing(bbox)
+            bboxes[i] = bbox
+            assigned_lenslets[i] = true
+        end
+    end
 
     Threads.@threads for i in findall(valid_lenslets)
         try
 
-            bbox = get_bbox(lasers_cxy0s_init[i, 1], lasers_cxy0s_init[i, 2])
-            bboxes[i] = bbox
-
             # lasers
 
-            lens_lasers = view(lasers, bbox)
+            lens_lasers = view(lasers, bboxes[i])
 
             lasers_cxs_init = [lasers_cxy0s_init[i, 1];
                 LASERS_CX1_INIT * (λref * 1e6);
@@ -84,7 +89,7 @@ function fitSpectralLawAndProfile(
                 LASERS_CY2_INIT * (λref * 1e6)^2]
 
             lasers_lkl = Lasers_LKL(
-                nλ, lasers_order, lasers_λs, λref, bbox, lens_lasers)
+                nλ, lasers_order, lasers_λs, λref, bboxes[i], lens_lasers)
 
             (fit_lasers_cxs, fit_lasers_cys, fit_fwhms, fit_amplitudes) = fit_lens_lasers(lasers_lkl,
                 lasers_fwhms_init, lasers_cxs_init, lasers_cys_init)
@@ -100,16 +105,16 @@ function fitSpectralLawAndProfile(
 
 
             compute_lasers_dists_and_λmap!(
-                λLAMP_RANGE, bbox, lasers_order, λref, fit_lasers_cxs, fit_lasers_cys,
+                λLAMP_RANGE, bboxes[i], lasers_order, λref, fit_lasers_cxs, fit_lasers_cys,
                 lens_lasers_pixels_dists, lens_lasers_pixels_λs)
 
             # lamp
 
-            lens_lamp = view(lamp, bbox)
+            lens_lamp = view(lamp, bboxes[i])
 
             lamp_cxs_init = [fit_lasers_cxs[1]; 0; 0]
 
-            lamp_lkl = Lamp_LKL(lamp_order, λref, bbox, lens_lamp, lens_lasers_pixels_dists, lens_lasers_pixels_λs)
+            lamp_lkl = Lamp_LKL(lamp_order, λref, bboxes[i], lens_lamp, lens_lasers_pixels_dists, lens_lasers_pixels_λs)
 
             (fit_lamp_cfwhms, fit_lamp_cxs, fit_lamp_back, fit_lamp_amplitudes) = fit_lens_lamp(
                 lamp_lkl, lamp_cfwhms_init, lamp_cxs_init)
@@ -132,7 +137,7 @@ function fitSpectralLawAndProfile(
         lasers_pixels_dists, lasers_pixels_λs, lamp_cfwhms, lamp_cxs, lamp_backs, lamp_amplitudes)
 end
 
-function get_bbox(center_x::Float64, center_y::Float64)::BoundingBox{Int}
+function get_bbox(center_x::Float64, center_y::Float64)
 
     bbox = round(
         Int,
@@ -142,8 +147,7 @@ function get_bbox(center_x::Float64, center_y::Float64)::BoundingBox{Int}
             ymax=center_y + BBOX_DY_UPPER),
         RoundNearestTiesUp) # rounding mode to preserve bbox size
 
-    size(bbox) == (BBOX_WIDTH, BBOX_HEIGHT) || error()
-    ((bbox.xmin ≥ 1) & (bbox.xmax ≤ 2048) & (bbox.ymin ≥ 1) & (bbox.ymax ≤ 2048)) || error()
-
-    bbox
+    size(bbox) == (BBOX_WIDTH, BBOX_HEIGHT) || return missing
+    ((bbox.xmin ≥ 1) & (bbox.xmax ≤ 2048) & (bbox.ymin ≥ 1) & (bbox.ymax ≤ 2048)) || return missing
+    return bbox
 end

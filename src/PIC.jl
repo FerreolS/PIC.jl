@@ -6,10 +6,11 @@
 module PIC
 
 using Zygote, StaticArrays, StatsBase, LinearAlgebra, EasyFITS, TwoDimensional, ProgressMeter,
-      OptimPackNextGen, Random, DelimitedFiles, ChainRulesCore, WeightedData, ConcreteStructs, DifferentiationInterface
+    OptimPackNextGen, Random, DelimitedFiles, ChainRulesCore, WeightedData, ConcreteStructs, DifferentiationInterface,
+    Parameters
 #Optimisers, ComponentArrays,  DifferentiationInterface
 
-export fitSpectralLawAndProfile, exporte, importe, compar
+export fitSpectralLawAndProfile, exporte, importe, compar, PICParams
 
 include("lasers.jl")
 include("lamps.jl")
