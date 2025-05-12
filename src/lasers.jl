@@ -135,7 +135,7 @@ function compute_lasers_cost_and_amplitudes(
 
     #model = sum(i -> laser_images[i] .* amplitudes[i], 1:lkl.nλ)
     #model = sum(laser_images .* amplitudes)
-    model = reshape(reshape(laser_images, :, nλ) * amplitudes, size(lkl.bbox))
+    model = reshape(reshape(laser_images, :, nλ) * amplitudes, size(bbox))
     #model = mapreduce(x -> (.*)(x...), +, zip(laser_images, amplitudes))
     #model =amplitudes' * laser_images
 
