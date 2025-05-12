@@ -110,7 +110,30 @@ function compute_laser_image(
     GaussianModel2.(fwhm, sq_dists)
 end
 
-@generated function compute_lasers_images(
+function compute_lasers_images(
+    ::Val{N}, order::Int, λref::Float64, cxs::AbstractVector, cys::AbstractVector,
+    fwhms::AbstractVector, lasers_λs::Vector{<:AbstractFloat}, bbox::BoundingBox{Int}
+) where {N}
+
+    λpo = ((lasers_λs .- λref) ./ λref) .^ reshape(0:order, 1, order + 1)
+    center_x = λpo * cxs
+    center_y = λpo * cys
+
+
+    (xs, ys) = axes(bbox)
+    a = ((xs .- center_x') .^ 2)
+    b = ((ys .- center_y') .^ 2)
+
+
+    sq_dists = reshape(a, :, 1, N) .+ reshape(b, 1, :, N)
+
+    fwhm2sigma = 1 / (2 * sqrt(2 * log(2)))
+    fw = -1 ./ (2 .* (fwhms .* fwhm2sigma) .^ 2)
+    exp.(sq_dists .* reshape(fw, 1, 1, N))
+end
+
+
+@generated function compute_lasers_imagesx(
     ::Val{N}, order::Int, λref::Float64, cxs::AbstractVector, cys::AbstractVector,
     fwhms::AbstractVector, lasers_λs::Vector{<:AbstractFloat}, bbox::BoundingBox{Int}
 ) where {N}
@@ -154,7 +177,8 @@ function compute_lasers_cost_and_amplitudes(
     amplitudes = ChainRulesCore.@ignore_derivatives compute_lasers_amplitudes(Val(lkl.nλ), laser_images, lkl.data)
 
     #model = sum(i -> laser_images[i] .* amplitudes[i], 1:lkl.nλ)
-    model = sum(laser_images .* amplitudes)
+    #model = sum(laser_images .* amplitudes)
+    model = reshape(reshape(laser_images, :, lkl.nλ) * amplitudes, size(lkl.bbox))
     #model = mapreduce(x -> (.*)(x...), +, zip(laser_images, amplitudes))
     #model =amplitudes' * laser_images
 
@@ -239,14 +263,47 @@ function compute_lasers_amplitudes(::Val{N},
     A = @MMatrix zeros(T, N, N)
     b = @MVector zeros(T, N)
 
-    mw = similar(model)
 
     @inbounds for index = 1:N
-        mw[index] = model[index] .* w
-        b[index] = mw[index]' * d
-        A[index, index] = mw[index]' * model[index]
+        mw = model[index] .* w
+        b[index] = mw' * d
+        A[index, index] = mw' * model[index]
         for i = 1:index-1
-            A[i, index] = A[index, i] = mw[index]' * model[i]
+            A[i, index] = A[index, i] = mw' * model[i]
+        end
+    end
+    return inv(A) * b
+
+end
+
+function compute_lasers_amplitudes(::Val{N},
+    lasers_models::Array{T,3}, d::WeightedArray
+) where {T<:Real,N}
+    data = get_data(d)
+    precision = get_precision(d)
+    d = view(data, :)
+    w = view(precision, :)
+
+
+    if false
+        model = reshape(lasers_models, :, N)
+
+        mw = (w .* model)
+
+        A = mw' * model
+        b = mw' * d
+    else
+        model = [reshape(lasers_models[:, :, i], :) for i in 1:N]
+        A = @MMatrix zeros(T, N, N)
+        b = @MVector zeros(T, N)
+
+        @inbounds for index = 1:N
+            mw = model[index] .* w
+            b[index] = mw' * d
+            A[index, index] = mw' * model[index]
+            for i = 1:index-1
+                A[i, index] = A[index, i] = mw' * model[i]
+            end
         end
     end
     return inv(A) * b
