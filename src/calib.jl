@@ -1,5 +1,14 @@
 using Parameters
 
+@with_kw struct BboxParams
+    BBOX_DX_LOWER::Int = 2
+    BBOX_DX_UPPER::Int = 2
+    BBOX_DY_LOWER::Int = 21
+    BBOX_DY_UPPER::Int = 18
+    BBOX_WIDTH::Int = BBOX_DX_LOWER + 1 + BBOX_DX_UPPER
+    BBOX_HEIGHT::Int = BBOX_DY_LOWER + 1 + BBOX_DY_UPPER
+end
+
 @with_kw struct PICParams{R<:Real,Q}
     @deftype R
     nλ::Int = 3
@@ -26,14 +35,9 @@ using Parameters
 
     lamp_cfwhms_init::Vector{R} = [2.5, 0, 0, 0][1:(lamp_order+1)]
 
-    BBOX_DX_LOWER::Int = 2
-    BBOX_DX_UPPER::Int = 2
-    BBOX_DY_LOWER::Int = 21
-    BBOX_DY_UPPER::Int = 18
-    BBOX_WIDTH::Int = BBOX_DX_LOWER + 1 + BBOX_DX_UPPER
-    BBOX_HEIGHT::Int = BBOX_DY_LOWER + 1 + BBOX_DY_UPPER
-
+    bbox_params::BboxParams = BboxParams()
 end
+
 
 function fitSpectralLawAndProfile(
     lasers::WeightedArray,
@@ -41,8 +45,8 @@ function fitSpectralLawAndProfile(
     ; calib_params::PICParams,
     valid_lenslets::AbstractVector{Bool}=trues(NLENS)
 )
-    @unpack_CalibParams calib_params
-
+    @unpack_PICParams calib_params
+    @unpack_BboxParams bbox_params
 
     size(valid_lenslets) == (NLENS,) || throw(ArgumentError("valid_lenslets must be of size NLENS"))
 
@@ -66,7 +70,7 @@ function fitSpectralLawAndProfile(
 
     @inbounds for i in findall(valid_lenslets)
 
-        bbox = get_bbox(lasers_cxy0s_init[i, 1], lasers_cxy0s_init[i, 2])
+        bbox = get_bbox(lasers_cxy0s_init[i, 1], lasers_cxy0s_init[i, 2]; bbox_params=bbox_params)
         if !ismissing(bbox)
             bboxes[i] = bbox
             assigned_lenslets[i] = true
@@ -137,8 +141,8 @@ function fitSpectralLawAndProfile(
         lasers_pixels_dists, lasers_pixels_λs, lamp_cfwhms, lamp_cxs, lamp_backs, lamp_amplitudes)
 end
 
-function get_bbox(center_x::Float64, center_y::Float64)
-
+function get_bbox(center_x::Float64, center_y::Float64; bbox_params::BboxParams=BboxParams())
+    @unpack_BboxParams bbox_params
     bbox = round(
         Int,
         BoundingBox(; xmin=center_x - BBOX_DX_LOWER,
