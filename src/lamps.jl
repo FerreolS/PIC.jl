@@ -18,8 +18,12 @@ function fit_lens_lamp(
 )
 
     vmlmbvars = encode_lamp_lkl_vmlmbvars(lamp_cfwhms_init, lamp_cxs_init)
+    grad = similar(vmlmbvars)
+    prep = prepare_gradient(lamp_lkl, AutoZygote(), vmlmbvars)
+    fg!(x, grad) = DifferentiationInterface.value_and_gradient!(lamp_lkl, grad, prep, AutoZygote(), x)[1]
+    vmlmb!(fg!, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500)
 
-    vmlmb!(lamp_lkl, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500, autodiff=true)
+    #vmlmb!(lamp_lkl, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500, autodiff=true)
 
     (fit_cfwhms, fit_cxs) = decode_lamp_lkl_vmlmbvars(vmlmbvars)
 
