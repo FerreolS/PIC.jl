@@ -10,7 +10,7 @@ using Zygote, StaticArrays, StatsBase, LinearAlgebra, EasyFITS, TwoDimensional, 
     Parameters
 #Optimisers, ComponentArrays,  DifferentiationInterface
 
-export fitSpectralLawAndProfile, exporte, importe, compar, PICParams
+export fitSpectralLawAndProfile, exporte, importe, compar, PICParams, BboxParams
 
 include("lasers.jl")
 include("lamps.jl")
