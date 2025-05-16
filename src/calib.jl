@@ -63,7 +63,10 @@ function fitSpectralLawAndProfile(
     lamp_cxs = fill(NaN64, lamp_order + 1, NLENS)
     lamp_backs = fill(NaN64, NLENS)
     lamp_amplitudes = fill(NaN64, BBOX_HEIGHT, NLENS)
-
+    lasers_cost = fill(NaN64, NLENS)
+    lamp_cost = fill(NaN64, NLENS)
+    lasers_model = zeros(size(lasers))
+    lamp_model = zeros(size(lamp))
     p = Progress(NLENS; showspeed=true)
 
     assigned_lenslets = falses(NLENS)
@@ -95,9 +98,11 @@ function fitSpectralLawAndProfile(
             lasers_lkl = Lasers_LKL(
                 nλ, lasers_order, lasers_λs, λref, bboxes[i], lens_lasers)
 
-            (fit_lasers_cxs, fit_lasers_cys, fit_fwhms, fit_amplitudes) = fit_lens_lasers(lasers_lkl,
+            (fit_lasers_cxs, fit_lasers_cys, fit_fwhms, fit_amplitudes, model, cost) = fit_lens_lasers(lasers_lkl,
                 lasers_fwhms_init, lasers_cxs_init, lasers_cys_init)
 
+            lasers_cost[i] = cost
+            view(lasers_model, bboxes[i]) .= model
             lasers_cxs[:, i] .= fit_lasers_cxs
             lasers_cys[:, i] .= fit_lasers_cys
             lasers_fwhms[:, i] .= fit_fwhms
@@ -120,8 +125,12 @@ function fitSpectralLawAndProfile(
 
             lamp_lkl = Lamp_LKL(lamp_order, λref, bboxes[i], lens_lamp, lens_lasers_pixels_dists, lens_lasers_pixels_λs)
 
-            (fit_lamp_cfwhms, fit_lamp_cxs, fit_lamp_back, fit_lamp_amplitudes) = fit_lens_lamp(
+            (fit_lamp_cfwhms, fit_lamp_cxs, fit_lamp_back, fit_lamp_amplitudes, model, cost) = fit_lens_lamp(
                 lamp_lkl, lamp_cfwhms_init, lamp_cxs_init)
+
+            view(lamp_model, bboxes[i]) .= model
+            lamp_cost[i] = cost
+
 
             lamp_cfwhms[:, i] .= fit_lamp_cfwhms
             lamp_cxs[:, i] .= fit_lamp_cxs
@@ -142,7 +151,8 @@ function fitSpectralLawAndProfile(
 
     (; nλ, lasers_λs, λref, lasers_order, lamp_order, assigned_lenslets, bboxes,
         lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes,
-        lasers_pixels_dists, lasers_pixels_λs, lamp_cfwhms, lamp_cxs, lamp_backs, lamp_amplitudes)
+        lasers_pixels_dists, lasers_pixels_λs, lamp_cfwhms, lamp_cxs, lamp_backs, lamp_amplitudes,
+        lasers_cost, lamp_cost, lasers_model, lamp_model)
 end
 
 function get_bbox(center_x::Float64, center_y::Float64; bbox_params::BboxParams=BboxParams())

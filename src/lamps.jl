@@ -27,10 +27,10 @@ function fit_lens_lamp(
 
     (fit_cfwhms, fit_cxs) = decode_lamp_lkl_vmlmbvars(vmlmbvars)
 
-    (cost, fit_back, fit_amplitudes) = compute_lamp_cost_and_back_and_amplitudes(
+    (cost, fit_back, fit_amplitudes, model) = compute_lamp_cost_and_back_and_amplitudes(
         lamp_lkl, fit_cfwhms, fit_cxs)
 
-    (fit_cfwhms, fit_cxs, fit_back, fit_amplitudes)
+    (fit_cfwhms, fit_cxs, fit_back, fit_amplitudes, model, cost)
 end
 
 function compute_lamp_fwhm_and_center_x(
@@ -43,19 +43,18 @@ function compute_lamp_fwhm_and_center_x(
     (fwhm, sq_dist_to_center_x)
 end
 
-function encode_lamp_lkl_vmlmbvars(cfwhms::Vector{T}, cxs::Vector{T}) where {T<:Real}
-    vmlmbvars = hcat(cfwhms, cxs)
-end
+encode_lamp_lkl_vmlmbvars(cfwhms::Vector{T}, cxs::Vector{T}) where {T<:Real} = hcat(cfwhms, cxs)
+
 
 function decode_lamp_lkl_vmlmbvars(vmlmbvars::AbstractMatrix{<:Real})
-    cfwhms = vmlmbvars[:, 1]
-    cxs = vmlmbvars[:, 2]
+    cfwhms = @view vmlmbvars[:, 1]
+    cxs = @view vmlmbvars[:, 2]
     (cfwhms, cxs)
 end
 
 function (self::Lamp_LKL)(vmlmbvars::AbstractMatrix{<:Real})
     (cfwhms, cxs) = decode_lamp_lkl_vmlmbvars(vmlmbvars)
-    (cost, back, amps) = compute_lamp_cost_and_back_and_amplitudes(self, cfwhms, cxs)
+    (cost, _, _, _) = compute_lamp_cost_and_back_and_amplitudes(self, cfwhms, cxs)
     cost
 end
 
@@ -63,7 +62,6 @@ function compute_lamp_cost_and_back_and_amplitudes(
     (; order, λref, bbox, data, lasers_pixels_λs)::Lamp_LKL,
     cfwhms::AbstractVector, cxs::AbstractVector
 )
-    bbox_rx = axes(bbox, 1)
 
     lamp_image = compute_lamp_images(
         order, λref, cfwhms, cxs, lasers_pixels_λs, bbox)
@@ -76,8 +74,9 @@ function compute_lamp_cost_and_back_and_amplitudes(
     model = @. (lamp_image_norm * amplitudes') + back
 
     cost = likelihood(data, model)
+    #cost = likelihood(robustlikelihood(3.0), data, model)
 
-    (cost, back, amplitudes)
+    (cost, back, amplitudes, model)
 end
 
 

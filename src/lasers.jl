@@ -42,7 +42,7 @@ end
 
 function (self::Lasers_LKL)(vmlmbvars::AbstractVector)
     (fwhms, cxs, cys) = decode_lasers_lkl_vmlmbvars(self.nλ, vmlmbvars)
-    (cost, amplitudes) = compute_lasers_cost_and_amplitudes(self, cxs, cys, fwhms)
+    (cost, _, _) = compute_lasers_cost_and_amplitudes(self, cxs, cys, fwhms)
     cost
 end
 
@@ -64,10 +64,10 @@ function fit_lens_lasers(
     #xopt, info = prima(lasers_lkl, vmlmbvars; maxfun=10_000, ftarget=length(lens_lasers_data))
     (fit_fwhms, fit_cxs, fit_cys) = decode_lasers_lkl_vmlmbvars(lasers_lkl.nλ, vmlmbvars)
 
-    (cost, fit_amplitudes) = compute_lasers_cost_and_amplitudes(
+    (cost, fit_amplitudes, model) = compute_lasers_cost_and_amplitudes(
         lasers_lkl, fit_cxs, fit_cys, fit_fwhms)
 
-    (fit_cxs, fit_cys, fit_fwhms, fit_amplitudes)
+    (fit_cxs, fit_cys, fit_fwhms, fit_amplitudes, model, cost)
 end
 
 
@@ -104,9 +104,9 @@ end
 
 
 function compute_lasers_images(
-    ::Val{N}, order::Int, λref::Float64, cxs::AbstractVector, cys::AbstractVector,
-    fwhms::AbstractVector, lasers_λs::Vector{<:AbstractFloat}, bbox::BoundingBox{Int}
-) where {N}
+    ::Val{N}, order::Int, λref::Float64, cxs::AbstractVector{T}, cys::AbstractVector{T},
+    fwhms::AbstractVector{T}, lasers_λs::Vector{<:AbstractFloat}, bbox::BoundingBox{Int}
+) where {N,T}
 
     λpo = ((lasers_λs .- λref) ./ λref) .^ reshape(0:order, 1, order + 1)
     center_x = λpo * cxs
@@ -120,8 +120,8 @@ function compute_lasers_images(
 
     sq_dists = reshape(a, :, 1, N) .+ reshape(b, 1, :, N)
 
-    fwhm2sigma = 1 / (2 * sqrt(2 * log(2)))
-    fw = -1 ./ (2 .* (fwhms .* fwhm2sigma) .^ 2)
+    fwhm2sigma = T(1 / (2 * sqrt(2 * log(2))))
+    fw = -T(1) ./ (T(2) .* (fwhms .* fwhm2sigma) .^ 2)
     exp.(sq_dists .* reshape(fw, 1, 1, N))
 end
 
@@ -140,8 +140,8 @@ function compute_lasers_cost_and_amplitudes(
     #model =amplitudes' * laser_images
 
     cost = likelihood(data, model)
-
-    (cost, amplitudes)
+    #cost = likelihood(data, model, likelihoodfunc=robustlikelihood(3.0))
+    (cost, amplitudes, model)
 end
 
 """
