@@ -9,6 +9,20 @@ using Parameters
     BBOX_HEIGHT::Int = BBOX_DY_LOWER + 1 + BBOX_DY_UPPER
 end
 
+
+@with_kw struct OptimParams{R<:Real,Q}
+    @deftype R
+    maxeval::Int = 500
+    xtol::Tuple{R,R} = (0.0, 1e-7)
+    ftol::Tuple{R,R} = (0.0, 1e-8)
+    gtol::Tuple{R,R} = (0.0, 1e-6)
+    verb::Bool = false
+    lower::R = -Inf
+    upper::R = +Inf
+    ADbackend::Q = AutoZygote()
+end
+
+
 @with_kw struct PICParams{R<:Real,Q}
     @deftype R
     nλ::Int = 3
@@ -36,6 +50,9 @@ end
     lamp_cfwhms_init::Vector{R} = [2.5, 0, 0, 0][1:(lamp_order+1)]
 
     bbox_params::BboxParams = BboxParams()
+
+    laserOptim::OptimParams = OptimParams()
+    lampOptim::OptimParams = OptimParams()
 end
 
 
@@ -99,7 +116,7 @@ function fitSpectralLawAndProfile(
                 nλ, lasers_order, lasers_λs, λref, bboxes[i], lens_lasers)
 
             (fit_lasers_cxs, fit_lasers_cys, fit_fwhms, fit_amplitudes, model, cost) = fit_lens_lasers(lasers_lkl,
-                lasers_fwhms_init, lasers_cxs_init, lasers_cys_init)
+                lasers_fwhms_init, lasers_cxs_init, lasers_cys_init; optim=laserOptim)
 
             lasers_cost[i] = cost
             view(lasers_model, bboxes[i]) .= model

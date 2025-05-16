@@ -14,14 +14,16 @@ end
 function fit_lens_lamp(
     lamp_lkl::Lamp_LKL,
     lamp_cfwhms_init::Vector{Float64},
-    lamp_cxs_init::Vector{Float64}
+    lamp_cxs_init::Vector{Float64};
+    optim=OptimParams()
 )
+    @unpack_OptimParams optim
 
     vmlmbvars = encode_lamp_lkl_vmlmbvars(lamp_cfwhms_init, lamp_cxs_init)
     grad = similar(vmlmbvars)
-    prep = prepare_gradient(lamp_lkl, AutoZygote(), vmlmbvars)
-    fg!(x, grad) = DifferentiationInterface.value_and_gradient!(lamp_lkl, grad, prep, AutoZygote(), x)[1]
-    vmlmb!(fg!, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500)
+    prep = prepare_gradient(lamp_lkl, ADbackend, vmlmbvars)
+    fg!(x, grad) = DifferentiationInterface.value_and_gradient!(lamp_lkl, grad, prep, ADbackend, x)[1]
+    vmlmb!(fg!, vmlmbvars; verb=verb, maxeval=maxeval, ftol=ftol, xtol=xtol, gtol=gtol, lower=lower, upper=upper)
 
     #vmlmb!(lamp_lkl, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500, autodiff=true)
 

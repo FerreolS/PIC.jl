@@ -12,9 +12,9 @@ using Zygote, StaticArrays, StatsBase, LinearAlgebra, EasyFITS, TwoDimensional, 
 
 export fitSpectralLawAndProfile, exporte, importe, compar, PICParams, BboxParams
 
+include("calib.jl")
 include("lasers.jl")
 include("lamps.jl")
-include("calib.jl")
 include("io.jl")
 
 end # module

@@ -50,17 +50,18 @@ function fit_lens_lasers(
     lasers_lkl::Lasers_LKL,
     lasers_fwhms_init::AbstractVector,
     lasers_cxs_init::AbstractVector,
-    lasers_cys_init::AbstractVector
+    lasers_cys_init::AbstractVector;
+    optim=OptimParams()
 )
-
+    @unpack_OptimParams optim
     vmlmbvars = encode_lasers_lkl_vmlmbvars(lasers_fwhms_init, lasers_cxs_init, lasers_cys_init)
 
 
     #vmlmb!(lasers_lkl, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500, autodiff=true)
     grad = similar(vmlmbvars)
-    prep = prepare_gradient(lasers_lkl, AutoZygote(), vmlmbvars)
-    fg!(x, grad) = DifferentiationInterface.value_and_gradient!(lasers_lkl, grad, prep, AutoZygote(), x)[1]
-    vmlmb!(fg!, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500)
+    prep = prepare_gradient(lasers_lkl, ADbackend, vmlmbvars)
+    fg!(x, grad) = DifferentiationInterface.value_and_gradient!(lasers_lkl, grad, prep, ADbackend, x)[1]
+    vmlmb!(fg!, vmlmbvars; verb=verb, maxeval=maxeval, ftol=ftol, xtol=xtol, gtol=gtol, lower=lower, upper=upper)
     #xopt, info = prima(lasers_lkl, vmlmbvars; maxfun=10_000, ftarget=length(lens_lasers_data))
     (fit_fwhms, fit_cxs, fit_cys) = decode_lasers_lkl_vmlmbvars(lasers_lkl.nλ, vmlmbvars)
 
