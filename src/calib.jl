@@ -53,6 +53,8 @@ end
 
     laserOptim::OptimParams = OptimParams()
     lampOptim::OptimParams = OptimParams()
+
+    multi_thread::Bool = true
 end
 
 
@@ -97,7 +99,10 @@ function fitSpectralLawAndProfile(
         end
     end
 
-    Threads.@threads for i in findall(assigned_lenslets)
+    #Threads.@threads for i in findall(assigned_lenslets)
+    # from https://discourse.julialang.org/t/optionally-multi-threaded-for-loop/81902/8?u=skleinbo
+    _foreach = multi_thread ? ThreadsX.foreach : Base.foreach
+    _foreach(findall(assigned_lenslets)) do i
         try
 
             # lasers
