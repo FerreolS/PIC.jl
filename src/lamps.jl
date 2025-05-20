@@ -32,7 +32,7 @@ function fit_lens_lamp(
     (cost, fit_back, fit_amplitudes, model) = compute_lamp_cost_and_back_and_amplitudes(
         lamp_lkl, fit_cfwhms, fit_cxs)
 
-    (fit_cfwhms, fit_cxs, fit_back, fit_amplitudes, model, cost)
+    (copy(fit_cfwhms), copy(fit_cxs), fit_back, fit_amplitudes, model, cost)
 end
 
 function compute_lamp_fwhm_and_center_x(
@@ -83,10 +83,10 @@ end
 
 
 function compute_lamp_images(order::Int, λref::Float64, cfwhms::AbstractVector, cxs::AbstractVector,
-    lasers_λs::Vector{<:AbstractFloat}, bbox::BoundingBox{Int}
+    lamp_λs::Vector{<:AbstractFloat}, bbox::BoundingBox{Int}
 )
 
-    λpo = ((lasers_λs .- λref) ./ λref) .^ reshape(0:order, 1, order + 1)
+    λpo = ((lamp_λs .- λref) ./ λref) .^ reshape(0:order, 1, order + 1)
     center_x = λpo * cxs
 
     fwhms = λpo * cfwhms

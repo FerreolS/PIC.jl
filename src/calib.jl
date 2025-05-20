@@ -57,6 +57,15 @@ end
     multi_thread::Bool = true
 end
 
+struct LensletCalibrated{T}
+    bbox::BoundingBox{Int}
+    lasers_cxs::Vector{T}
+    lasers_cys::Vector{T}
+    lasers_fwhms::Vector{T}
+    lasers_pixels_λs::Vector{T}
+    lamp_cfwhms::Vector{T}
+    lamp_cxs::Vector{T}
+end
 
 function fitSpectralLawAndProfile(
     lasers::WeightedArray,
@@ -72,14 +81,10 @@ function fitSpectralLawAndProfile(
     λref = mean(lasers_λs)
 
     bboxes = fill(BoundingBox{Int}(-1, -1, -1, -1), NLENS)
-    lasers_cxs = fill(NaN64, lasers_order + 1, NLENS)
-    lasers_cys = fill(NaN64, lasers_order + 1, NLENS)
-    lasers_fwhms = fill(NaN64, nλ, NLENS)
+    lenslet_array = Vector{LensletCalibrated}(undef, NLENS)
+
     lasers_amplitudes = fill(NaN64, nλ, NLENS)
     lasers_pixels_dists = Vector{Vector{Float64}}(undef, NLENS)
-    lasers_pixels_λs = Vector{Vector{Float64}}(undef, NLENS)
-    lamp_cfwhms = fill(NaN64, lamp_order + 1, NLENS)
-    lamp_cxs = fill(NaN64, lamp_order + 1, NLENS)
     lamp_backs = fill(NaN64, NLENS)
     lamp_amplitudes = fill(NaN64, BBOX_HEIGHT, NLENS)
     lasers_cost = fill(NaN64, NLENS)
@@ -125,9 +130,6 @@ function fitSpectralLawAndProfile(
 
             lasers_cost[i] = cost
             view(lasers_model, bboxes[i]) .= model
-            lasers_cxs[:, i] .= fit_lasers_cxs
-            lasers_cys[:, i] .= fit_lasers_cys
-            lasers_fwhms[:, i] .= fit_fwhms
             lasers_amplitudes[:, i] .= fit_amplitudes
 
             lens_lasers_pixels_dists = fill(NaN64, BBOX_HEIGHT)
@@ -150,17 +152,18 @@ function fitSpectralLawAndProfile(
             (fit_lamp_cfwhms, fit_lamp_cxs, fit_lamp_back, fit_lamp_amplitudes, model, cost) = fit_lens_lamp(
                 lamp_lkl, lamp_cfwhms_init, lamp_cxs_init)
 
+
+            lenslet_array[i] = LensletCalibrated(bboxes[i], fit_lasers_cxs, fit_lasers_cys, fit_fwhms,
+                lens_lasers_pixels_λs, fit_lamp_cfwhms, fit_lamp_cxs)
+
             view(lamp_model, bboxes[i]) .= model
             lamp_cost[i] = cost
 
 
-            lamp_cfwhms[:, i] .= fit_lamp_cfwhms
-            lamp_cxs[:, i] .= fit_lamp_cxs
             lamp_backs[i] = fit_lamp_back
             lamp_amplitudes[:, i] .= fit_lamp_amplitudes
 
             lasers_pixels_dists[i] = lens_lasers_pixels_dists
-            lasers_pixels_λs[i] = lens_lasers_pixels_λs
 
 
         catch e
@@ -171,9 +174,9 @@ function fitSpectralLawAndProfile(
     end
     ProgressMeter.finish!(p)
 
-    (; nλ, lasers_λs, λref, lasers_order, lamp_order, assigned_lenslets, bboxes,
-        lasers_cxs, lasers_cys, lasers_fwhms, lasers_amplitudes,
-        lasers_pixels_dists, lasers_pixels_λs, lamp_cfwhms, lamp_cxs, lamp_backs, lamp_amplitudes,
+    (; lenslet_array, nλ, lasers_λs, λref, lasers_order, lamp_order, assigned_lenslets, bboxes,
+        lasers_amplitudes,
+        lasers_pixels_dists, lamp_backs, lamp_amplitudes,
         lasers_cost, lamp_cost, lasers_model, lamp_model)
 end
 

@@ -57,12 +57,18 @@ function fit_lens_lasers(
     vmlmbvars = encode_lasers_lkl_vmlmbvars(lasers_fwhms_init, lasers_cxs_init, lasers_cys_init)
 
 
-    #vmlmb!(lasers_lkl, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500, autodiff=true)
-    grad = similar(vmlmbvars)
-    prep = prepare_gradient(lasers_lkl, ADbackend, vmlmbvars)
-    fg!(x, grad) = DifferentiationInterface.value_and_gradient!(lasers_lkl, grad, prep, ADbackend, x)[1]
-    vmlmb!(fg!, vmlmbvars; verb=verb, maxeval=maxeval, ftol=ftol, xtol=xtol, gtol=gtol, lower=lower, upper=upper)
-    #xopt, info = prima(lasers_lkl, vmlmbvars; maxfun=10_000, ftarget=length(lens_lasers_data))
+    if true
+        #vmlmb!(lasers_lkl, vmlmbvars; verb=false, ftol=(0.0, 1e-8), maxeval=500, autodiff=true)
+        grad = similar(vmlmbvars)
+        prep = prepare_gradient(lasers_lkl, ADbackend, vmlmbvars)
+        fg!(x, grad) = DifferentiationInterface.value_and_gradient!(lasers_lkl, grad, prep, ADbackend, x)[1]
+        vmlmb!(fg!, vmlmbvars; verb=verb, maxeval=maxeval, ftol=ftol, xtol=xtol, gtol=gtol, lower=lower, upper=upper)
+        #xopt, info = prima(lasers_lkl, vmlmbvars; maxfun=10_000, ftarget=length(lens_lasers_data))
+
+    else
+        f(x) = lasers_lkl(x)
+        OptimPackNextGen.Powell.Newuoa.newuoa!(f, vmlmbvars, 1.e-1, 1.e-6, verbose=false, maxeval=5000)
+    end
     (fit_fwhms, fit_cxs, fit_cys) = decode_lasers_lkl_vmlmbvars(lasers_lkl.nλ, vmlmbvars)
 
     (cost, fit_amplitudes, model) = compute_lasers_cost_and_amplitudes(
