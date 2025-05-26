@@ -196,3 +196,166 @@ function get_bbox(center_x::Float64, center_y::Float64; bbox_params::BboxParams=
     ((bbox.xmin ≥ 1) & (bbox.xmax ≤ 2048) & (bbox.ymin ≥ 1) & (bbox.ymax ≤ 2048)) || return missing
     return bbox
 end
+
+
+function extract_spectrum(wd::WeightedArray{T,N},
+    lenslet::LensletModel;
+    restrict=0.01,
+    nonnegative=false,
+    kwds...
+) where {T,N}
+    bbox = lenslet.bbox
+    if N > 2
+        (; data, precision) = view(wd, bbox, :)
+    else
+        (; data, precision) = view(wd, bbox)
+    end
+
+    model = T.(compute_lamp_images(lenslet))
+
+    model = model ./ sum(model, dims=1)
+    if restrict > 0
+        precision .*= (model .> restrict)
+    end
+
+    αprecision = sum(model .^ 2 .* precision, dims=1)
+    α = sum(model .* precision .* data, dims=1) ./ αprecision
+
+    nanpix = .!isnan.(α)
+    if nonnegative
+        positive = nanpix .& (α .>= T(0))
+    else
+        positive = nanpix
+    end
+
+    wp = WeightedArray(dropdims(positive .* α, dims=1), dropdims(positive .* αprecision, dims=1))
+
+    return wp
+end
+
+function extract_spectra(wd::WeightedArray{T,N},
+    lenslets::AbstractVector{<:LensletModel},
+    assigned_lenslets::AbstractVector{Bool};
+    multi_thread::Bool=true,
+    restrict=0.01,
+    nonnegative=false,
+    kwds...) where {T,N}
+
+    wspectra = Vector{WeightedArray{T}}(undef, length(lenslets))
+
+    l = size(lenslets[findfirst(assigned_lenslets)].bbox, 2)
+    unseen = WeightedArray(zeros(l), zeros(l))
+    _foreach = multi_thread ? ThreadsX.foreach : Base.foreach
+    _foreach(eachindex(lenslets, assigned_lenslets)) do i
+        if assigned_lenslets[i]
+            wspectra[i] = extract_spectrum(wd, lenslets[i]; restrict=restrict, nonnegative=nonnegative)
+        else
+            wspectra[i] = unseen
+        end
+    end
+    return wspectra
+end
+
+function extract_wavelegth_coordinates(lenslet_array::AbstractVector{<:LensletModel}, assigned_lenslets::AbstractVector{Bool}; thrs=3)
+    idx = findall(assigned_lenslets)
+    isnothing(idx) && throw(ArgumentError("No assigned lenslets"))
+    λs = fill(NaN64, size(lenslet_array[findfirst(assigned_lenslets)].bbox, 2), length(lenslet_array))
+    map(i -> (λs[:, i] .= lenslet_array[i].λs), idx)
+    # mapreduce(x -> x.λs, hcat, lenslet_array[assigned_lenslets])
+    #assigned_lenslets .&= identify_bad_lenslet(λs)
+
+    blue = λs[1, idx]
+    red = λs[end, idx]
+    Δλ = red .- blue
+    view(assigned_lenslets, idx) .&= ((blue .- median(blue)) .< thrs * mad(blue)) .&&
+                                     ((red .- median(red)) .< thrs * mad(red)) .&&
+                                     ((Δλ .- median(Δλ)) .< thrs * mad(Δλ))
+
+    return λs, assigned_lenslets
+end
+
+
+function build_λrange(λs::AbstractMatrix{<:Real}; superres=1)
+    blue = λs[1, :]
+    red = λs[end, :]
+    return range(start=minimum(blue), stop=maximum(red), step=median((red .- blue) ./ 40) / superres)
+end
+
+
+function find_index(knots::AbstractRange, sample)
+    return (sample - first(knots)) / step(knots) + 1
+end
+
+function build_sparse_interpolation_matrix(knots, samples; kernel::Kernel{T,N}=CatmullRomSpline()) where {T,N}
+    lk = length(kernel)
+    lin = length(samples)
+    col = length(knots)
+
+    nelement = lk * lin
+    L = zeros(Int, nelement)
+    C = zeros(Int, nelement)
+    V = zeros(T, nelement)
+    c = 1
+
+    for (l, sample) ∈ enumerate(samples)
+        offweights = InterpolationKernels.compute_offset_and_weights(kernel, T.(find_index(knots, sample)))
+        weights = vcat(offweights[2]...)
+        off::Int = round(Int, offweights[1]) + 1
+        L[c:(c+lk-1)] .= l
+        C[c:(c+lk-1)] .= min.(max.(off:(off+lk-1), 1), col)
+        V[c:(c+lk-1)] .= weights
+        c += lk
+    end
+    return sparse(L, C, V, lin, col)
+end
+
+function get_lower_uppersamples(λ::AbstractVector)
+    lower = [(3 * λ[1] .- λ[2]) / 2; (λ[1:end-1] .+ λ[2:end]) / 2]
+    upper = [(λ[2:end] .+ λ[1:end-1]) / 2; (3 * λ[end] .- λ[end-1]) / 2]
+    return lower, upper
+end
+
+
+function reverse_cumsum(v)
+    out = similar(v)
+    out[end] = v[end]
+    @inbounds for i ∈ (length(v)-1):-1:1
+        out[i] = out[i+1] + v[i]
+    end
+    return out
+end
+
+function build_sparse_interpolation_integration_matrix(knots, lowersample, uppersamples; kernel::Kernel{T,N}=CatmullRomSpline()) where {T,N}
+
+    lk = length(kernel)
+    lin = length(uppersamples)
+    lin == length(lowersample) || throw(DimensionMismatch("uppersamples and lowersample must have the same length"))
+    col = length(knots)
+
+    nelement = col * lin
+    L = zeros(Int, nelement)
+    C = zeros(Int, nelement)
+    V = zeros(T, nelement)
+    c = 1
+
+    for (l, (lsample, usample)) ∈ enumerate(zip(lowersample, uppersamples))
+        uoffweights = InterpolationKernels.compute_offset_and_weights(kernel, T.(find_index(knots, usample)))
+        loffweights = InterpolationKernels.compute_offset_and_weights(kernel, T.(find_index(knots, lsample)))
+        uweights = vcat(uoffweights[2]...)[2:end]
+        uoff::Int = round(Int, uoffweights[1]) + 1
+
+        lweights = vcat(loffweights[2]...)[2:end]
+        loff::Int = round(Int, loffweights[1]) + 1
+
+        lv = uoff - loff + lk - 1
+        v = ones(T, lv)
+        v[(lv-lk+2):end] .= reverse_cumsum(uweights)
+        v[1:lk-1] .-= reverse_cumsum(lweights)
+        off = min.(max.(loff+1:(loff+lv), 1), col)
+        L[c:(c+lv-1)] .= l
+        C[c:(c+lv-1)] .= off
+        V[c:(c+lv-1)] .= v
+        c += lv
+    end
+    return sparse(L[1:c-1], C[1:c-1], V[1:c-1], lin, col)
+end
