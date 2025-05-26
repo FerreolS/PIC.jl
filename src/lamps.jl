@@ -81,12 +81,14 @@ function compute_lamp_cost_and_back_and_amplitudes(
     (cost, back, amplitudes, model)
 end
 
+compute_lamp_images((; λref, λs, fwhm_coefs, x_coefs, bbox)::LensletModel) =
+    compute_lamp_images(length(fwhm_coefs) - 1, λref, fwhm_coefs, x_coefs, λs, bbox)
 
 function compute_lamp_images(order::Int, λref::Float64, cfwhms::AbstractVector, cxs::AbstractVector,
-    lamp_λs::Vector{<:AbstractFloat}, bbox::BoundingBox{Int}
+    λs::Vector{<:AbstractFloat}, bbox::BoundingBox{Int}
 )
 
-    λpo = ((lamp_λs .- λref) ./ λref) .^ reshape(0:order, 1, order + 1)
+    λpo = ((λs .- λref) ./ λref) .^ reshape(0:order, 1, order + 1)
     center_x = λpo * cxs
 
     fwhms = λpo * cfwhms

@@ -57,14 +57,15 @@ end
     multi_thread::Bool = true
 end
 
-struct LensletCalibrated{T}
+struct LensletModel{T}
+    λref::T
     bbox::BoundingBox{Int}
     lasers_cxs::Vector{T}
     lasers_cys::Vector{T}
     lasers_fwhms::Vector{T}
-    lasers_pixels_λs::Vector{T}
-    lamp_cfwhms::Vector{T}
-    lamp_cxs::Vector{T}
+    λs::Vector{T}
+    fwhm_coefs::Vector{T}
+    x_coefs::Vector{T}
 end
 
 function fitSpectralLawAndProfile(
@@ -80,8 +81,8 @@ function fitSpectralLawAndProfile(
 
     λref = mean(lasers_λs)
 
-    bboxes = fill(BoundingBox{Int}(-1, -1, -1, -1), NLENS)
-    lenslet_array = Vector{LensletCalibrated}(undef, NLENS)
+    bboxes = fill(BoundingBox{Int}(nothing), NLENS)
+    lenslet_array = Vector{LensletModel{Float64}}(undef, NLENS)
 
     lasers_amplitudes = fill(NaN64, nλ, NLENS)
     lasers_pixels_dists = Vector{Vector{Float64}}(undef, NLENS)
@@ -153,7 +154,8 @@ function fitSpectralLawAndProfile(
                 lamp_lkl, lamp_cfwhms_init, lamp_cxs_init)
 
 
-            lenslet_array[i] = LensletCalibrated(bboxes[i], fit_lasers_cxs, fit_lasers_cys, fit_fwhms,
+            lenslet_array[i] = LensletModel{Float64}(λref,
+                bboxes[i], fit_lasers_cxs, fit_lasers_cys, fit_fwhms,
                 lens_lasers_pixels_λs, fit_lamp_cfwhms, fit_lamp_cxs)
 
             view(lamp_model, bboxes[i]) .= model

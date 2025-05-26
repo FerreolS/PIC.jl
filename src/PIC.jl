@@ -10,7 +10,7 @@ using Zygote, StaticArrays, StatsBase, LinearAlgebra, EasyFITS, TwoDimensional, 
     Parameters, ThreadsX
 #Optimisers, ComponentArrays,  DifferentiationInterface
 
-export fitSpectralLawAndProfile, exporte, importe, compar, PICParams, BboxParams, OptimParams, LensletCalibrated
+export fitSpectralLawAndProfile, exporte, importe, compar, PICParams, BboxParams, OptimParams, LensletModel
 
 include("calib.jl")
 include("lasers.jl")
