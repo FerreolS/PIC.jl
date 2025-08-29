@@ -107,7 +107,7 @@ function fitSpectralLawAndProfile(
 
     #Threads.@threads for i in findall(assigned_lenslets)
     # from https://discourse.julialang.org/t/optionally-multi-threaded-for-loop/81902/8?u=skleinbo
-    _foreach = multi_thread ? ThreadsX.foreach : Base.foreach
+    _foreach = multi_thread ? OhMyThreads.tforeach : Base.foreach
     _foreach(findall(assigned_lenslets)) do i
         try
 
@@ -195,4 +195,71 @@ function get_bbox(center_x::Float64, center_y::Float64; bbox_params::BboxParams=
     size(bbox) == (BBOX_WIDTH, BBOX_HEIGHT) || return missing
     ((bbox.xmin ≥ 1) & (bbox.xmax ≤ 2048) & (bbox.ymin ≥ 1) & (bbox.ymax ≤ 2048)) || return missing
     return bbox
+end
+
+
+function calib(
+    lasers::WeightedArray,
+    lamp::WeightedArray,
+    ; calib_params::PICParams=PICParams(),
+    valid_lenslets::AbstractVector{Bool}=trues(NLENS)
+)
+
+    #   @unpack_PICParams calib_params
+    #   @unpack_BboxParams bbox_params
+
+    size(valid_lenslets) == (NLENS,) || throw(ArgumentError("valid_lenslets must be of size NLENS"))
+
+    λref = mean(lasers_λs)
+
+    bboxes = fill(BoundingBox{Int}(nothing), NLENS)
+    profile = Vector{Profile}(undef, NLENS)
+
+    p = Progress(NLENS; showspeed=true)
+
+    assigned_lenslets = falses(NLENS)
+
+    @inbounds for i in findall(valid_lenslets)
+
+        bbox = get_bbox(lasers_cxy0s_init[i, 1], lasers_cxy0s_init[i, 2]; bbox_params=bbox_params)
+        if !ismissing(bbox)
+            bboxes[i] = bbox
+            assigned_lenslets[i] = true
+        end
+    end
+
+    profile_type = ZippedVector{WeightedValue{Float64},2,true,Tuple{Vector{Float64},Vector{Float64}}}
+    lamp_profile = Vector{profile_type}(undef, NLENS)
+    laser_profile = Vector{profile_type}(undef, NLENS)
+    laser_model = LaserModel([7.0, 20.0, 35.0], [2.0, 2.0, 2.0])
+
+    #Threads.@threads for i in findall(assigned_lenslets)
+    # from https://discourse.julialang.org/t/optionally-multi-threaded-for-loop/81902/8?u=skleinbo
+    _foreach = multi_thread ? OhMyThreads.tforeach : Base.foreach
+    _foreach(findall(assigned_lenslets)) do i
+        try
+
+            profile[i] = fit_profile(lamp, bboxes[i])
+            laser_profile[i] = extract_model(lasers, profile[i])
+            lamp_profile[i] = extract_model(lamp, profile[i])
+
+
+            las = fit_laser(view(laser, bboxes[i]), laser_model)
+            W = get_laser_precision(las, view(laser, bboxes[i]))
+            coefs = spectral_calibration(order, ref, lasers_λs, las.position, W)
+            λ = get_wavelength(coefs, ref, 1:40)
+
+
+        catch e
+            @debug "Error on lenslet $i" exception = (e, catch_backtrace())
+            assigned_lenslets[i] = false
+        end
+        next!(p)
+    end
+    ProgressMeter.finish!(p)
+
+    (; lenslet_array, nλ, lasers_λs, λref, lasers_order, lamp_order, assigned_lenslets, bboxes,
+        lasers_amplitudes,
+        lasers_pixels_dists, lamp_backs, lamp_amplitudes,
+        lasers_cost, lamp_cost, lasers_model, lamp_model)
 end

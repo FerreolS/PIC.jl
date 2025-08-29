@@ -175,7 +175,7 @@ function compute_lamp_backs_and_amplitudes(
     lamp_model::AbstractArray{T}, data::WeightedArray
 ) where {T<:Real}
     weights = get_precision(data)
-    data = get_data(data)
+    data = get_value(data)
     c = @. lamp_model * weights
     b = @. c * data
     a = @. lamp_model * c
@@ -197,4 +197,102 @@ function compute_lamp_backs_and_amplitudes(
     vb3 = vcat(sum(data .* weights), vb2[:])
 
     inv(A) * vb3
+end
+
+struct Profile
+    bbox::BoundingBox{Int64}
+    ycenter::Float64
+    cfwhm::Vector{Float64}
+    cx::Vector{Float64}
+end
+
+Profile(bbox::BoundingBox{Int}, cfwhm::AbstractVector, cx::AbstractVector) =
+    Profile(bbox, mean(axes(bbox, 2)), cfwhm, cx)
+
+(x::Profile)() = get_profile(x)
+
+function get_profile((; bbox, ycenter, cfwhm, cx)::Profile)
+
+
+    xorder = length(cx)
+    fwhmorder = length(cfwhm)
+
+    order = max(xorder, fwhmorder)
+
+    ax, ay = axes(bbox)
+    ypo = ((ay .- ycenter)) .^ reshape(0:order, 1, order + 1)
+    xcenter = ypo[:, 1:xorder] * cx
+
+    width = ypo[:, 1:fwhmorder] * cfwhm
+
+    sq_dists = ((ax .- xcenter') .^ 2)
+
+
+
+    fwhm2sigma = 1 / (2 * sqrt(2 * log(2)))
+    fw = -1 ./ (2 .* (width .* fwhm2sigma) .^ 2)
+    img = exp.(sq_dists .* reshape(fw, 1, :))
+    return img ./ sum(img; dims=1)
+end
+
+
+
+function extract_model(data::WeightedArray{T,N},
+    profile::Profile;
+    restrict=0.01,
+    nonnegative=false
+) where {T,N}
+    bbox = profile.bbox
+    if N > 2
+        (; value, precision) = view(data, bbox, :)
+    else
+        (; value, precision) = view(data, bbox)
+    end
+    model = profile()
+    if restrict > 0
+        model .*= (model .> restrict)
+    end
+
+    αprecision = dropdims(sum(model .^ 2 .* precision, dims=1), dims=1)
+    α = dropdims(sum(model .* precision .* value, dims=1), dims=1) ./ αprecision
+
+    nanpix = .!isnan.(α)
+    if nonnegative
+        positive = nanpix .& (α .>= T(0))
+    else
+        positive = nanpix
+    end
+
+    return WeightedArray(positive .* α, positive .* αprecision)
+end
+
+function fit_profile(data::WeightedArray{T,N},
+    bbox;
+    fwhm0=2.5,
+    fwhmorder=2,
+    fwhm=vcat(fwhm0, zeros(fwhmorder)),
+    cxorder=2,
+    cx=vcat(get_meanx(data, bbox), zeros(cxorder)),
+    optim=OptimParams()) where {T,N}
+
+    profile = Profile(bbox, fwhm, cx)
+
+    @unpack_OptimParams optim
+    vec, re = Optimisers.destructure(profile)
+    grad = similar(vec)
+
+    f(x) = likelihood(ScaledL2Loss(dims=1, nonnegative=true), view(data, profile.bbox), re(x)())
+
+    prep = prepare_gradient(f, ADbackend, vec)
+    fg!(x, grad) = DifferentiationInterface.value_and_gradient!(f, grad, prep, ADbackend, x)[1]
+    vmlmb!(fg!, vec; verb=verb, maxeval=maxeval, ftol=ftol, xtol=xtol, gtol=gtol, lower=lower, upper=upper)
+
+    return re(vec)
+end
+
+function get_meanx(data::WeightedArray{T,N}, bbox) where {T,N}
+    (; value, precision) = view(data, bbox)
+    ax, ay = axes(bbox)
+
+    return mean(reshape(sum(value .* sqrt.(precision) .* ax, dims=1) ./ sum(sqrt.(precision) .* value, dims=1), :))
 end

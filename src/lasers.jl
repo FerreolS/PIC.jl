@@ -218,7 +218,7 @@ In the function we compute `A⁻¹` and `b`.
 function compute_lasers_amplitudes(::Val{N},
     lasers_models::Vector{Matrix{T}}, d::WeightedArray
 ) where {T<:Real,N}
-    data = get_data(d)
+    data = get_value(d)
     precision = get_precision(d)
     model = [reshape(lasers_models[i], :) for i in 1:N]
     d = view(data, :)
@@ -243,7 +243,7 @@ end
 function compute_lasers_amplitudes(::Val{N},
     lasers_models::Array{T,3}, d::WeightedArray
 ) where {T<:Real,N}
-    data = get_data(d)
+    data = get_value(d)
     precision = get_precision(d)
     d = view(data, :)
     w = view(precision, :)
@@ -328,4 +328,106 @@ function compute_lasers_λmap!(
         end
     end
 
+end
+
+struct SpectralLaw
+    ycenter::Float64
+    coefs::Vector{Float64}
+end
+
+function ((; ycenter, coefs)::SpectralLaw)(j)
+    λorder = length(coefs) - 1
+
+    jpo = ((j .- ycenter)) .^ reshape(0:λorder, 1, λorder + 1)
+    return jpo * coefs
+end
+
+struct LaserModel
+    position::Vector{Float64}
+    fwhm::Vector{Float64}
+end
+LaserModel(position::AbstractVector, fwhm::AbstractVector) =
+    LaserModel(collect(position), collect(fwhm))
+
+function compute_laser_images((; position, fwhm)::LaserModel, idx::AbstractVector)
+    fwhm2sigma = 1 / (2 * sqrt(2 * log(2)))
+    fw = -1 ./ (2 .* (fwhm .* fwhm2sigma) .^ 2)
+    return exp.(-((idx .- reshape(position, 1, :)) ./ reshape(fwhm, 1, :)) .^ 2)
+end
+
+function compute_lasers_amplitudes(::Val{N},
+    model::Array{T,2}, (; value, precision)::WeightedArray
+) where {T<:Real,N}
+
+    A = @MMatrix zeros(T, N, N)
+    b = @MVector zeros(T, N)
+
+    @inbounds for index = 1:N
+        mw = model[:, index] .* precision
+        b[index] = mw' * value
+        A[index, index] = mw' * model[:, index]
+        for i = 1:index-1
+            A[i, index] = A[index, i] = mw' * model[:, i]
+        end
+    end
+
+    return inv(A) * b
+
+end
+
+function laser_cost(data::WeightedArray,
+    lasers::LaserModel
+)
+
+    images = hcat(compute_laser_images(lasers, axes(data, 1)), ones(length(data)))
+    amplitude = ChainRulesCore.@ignore_derivatives compute_lasers_amplitudes(Val(size(images, 2)), images, data)
+    model = images * amplitude
+    return likelihood(data, model)
+end
+
+function fit_laser(data::WeightedArray,
+    laser::LaserModel;
+    optim=OptimParams())
+
+    @unpack_OptimParams optim
+
+    vec, re = Optimisers.destructure(laser)
+    f(x) = PIC.laser_cost(data, re(x))
+    prep = prepare_gradient(f, ADbackend, vec)
+    fg!(x, grad) = DifferentiationInterface.value_and_gradient!(f, grad, prep, ADbackend, x)[1]
+    vmlmb!(fg!, vec; verb=verb, maxeval=maxeval, ftol=ftol, xtol=xtol, gtol=gtol, lower=lower, upper=upper)
+    return re(vec)
+end
+
+get_laser_precision(laser::LaserModel, data::WeightedArray) = get_laser_precision(Val(length(laser.position)), laser, data)
+
+function get_laser_precision(::Val{N},
+    laser::LaserModel,
+    (; value, precision)::WeightedArray) where {N}
+    images = compute_laser_images(laser, axes(value, 1))
+    W = @MMatrix zeros(Float64, N, N)
+
+    @inbounds for index = 1:N
+        mw = images[:, index] .* precision
+        W[index, index] = mw' * images[:, index]
+        for i = 1:index-1
+            W[i, index] = W[index, i] = mw' * images[:, i]
+        end
+    end
+    return W
+end
+
+spectral_calibration(order, ref, lasers_λs, laser_positions, Wpos) = spectral_calibration(Val(order), Val(length(laser_positions)), ref, lasers_λs, laser_positions, Wpos)
+
+function spectral_calibration(::Val{order}, ::Val{lines}, ref, lasers_λs, laser_positions, Wpos) where {order,lines}
+    A = MMatrix{lines,order + 1}(((laser_positions .- ref) ./ ref) .^ reshape(0:order, 1, :))
+    coefs = inv(A' * Wpos * A) * A' * Wpos * lasers_λs
+    return coefs
+end
+
+get_wavelength(coefs, ref, pixel) = get_wavelength(Val(length(coefs) - 1), Val(length(pixel)), coefs, ref, pixel)
+
+function get_wavelength(::Val{order}, ::Val{len}, coefs, ref, pixel) where {order,len}
+    fullA = SMatrix{len,order + 1}(((pixel .- ref) ./ ref) .^ reshape(0:order, 1, :))
+    return fullA * coefs
 end
