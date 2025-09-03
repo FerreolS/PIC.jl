@@ -392,10 +392,12 @@ function fit_laser(data::WeightedArray,
     @unpack_OptimParams optim
 
     vec, re = Optimisers.destructure(laser)
-    f(x) = PIC.laser_cost(data, re(x))
-    prep = prepare_gradient(f, ADbackend, vec)
-    fg!(x, grad) = DifferentiationInterface.value_and_gradient!(f, grad, prep, ADbackend, x)[1]
-    vmlmb!(fg!, vec; verb=verb, maxeval=maxeval, ftol=ftol, xtol=xtol, gtol=gtol, lower=lower, upper=upper)
+    f(x) = laser_cost(data, re(x))
+    #prep = prepare_gradient(f, ADbackend, vec)
+    #fg!(x, grad) = DifferentiationInterface.value_and_gradient!(f, grad, prep, ADbackend, x)[1]
+    #vmlmb!(fg!, vec; verb=verb, maxeval=maxeval, ftol=ftol, xtol=xtol, gtol=gtol, lower=lower, upper=upper)
+    Newuoa.optimize!(f, vec, 1e-5, 1e-15; check=false, maxeval=10_000, verbose=0)
+
     return re(vec)
 end
 

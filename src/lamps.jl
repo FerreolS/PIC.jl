@@ -199,40 +199,52 @@ function compute_lamp_backs_and_amplitudes(
     inv(A) * vb3
 end
 
-struct Profile
+struct Profile{N}
     bbox::BoundingBox{Int64}
     ycenter::Float64
-    cfwhm::Vector{Float64}
+    cfwhm::Array{Float64,N}
     cx::Vector{Float64}
 end
 
-Profile(bbox::BoundingBox{Int}, cfwhm::AbstractVector, cx::AbstractVector) =
+Profile(bbox::BoundingBox{Int}, cfwhm::AbstractArray, cx::AbstractVector) =
     Profile(bbox, mean(axes(bbox, 2)), cfwhm, cx)
 
-(x::Profile)() = get_profile(x)
+((; bbox, ycenter, cfwhm, cx)::Profile)() = get_profile(bbox, ycenter, cfwhm, cx)
 
-function get_profile((; bbox, ycenter, cfwhm, cx)::Profile)
+
+((; bbox, ycenter, cfwhm, cx)::Profile)(bbox2::BoundingBox{Int}) = get_profile(bbox2, ycenter, cfwhm, cx)
+
+function get_profile(bbox::BoundingBox{Int64}, ycenter::Float64, cfwhm::Array{Float64,N}, cx::Vector{Float64}) where N
 
 
     xorder = length(cx)
-    fwhmorder = length(cfwhm)
+    fwhmorder = size(cfwhm, 1)
 
     order = max(xorder, fwhmorder)
 
     ax, ay = axes(bbox)
     ypo = ((ay .- ycenter)) .^ reshape(0:order, 1, order + 1)
+
     xcenter = ypo[:, 1:xorder] * cx
 
     width = ypo[:, 1:fwhmorder] * cfwhm
 
-    sq_dists = ((ax .- xcenter') .^ 2)
-
-
-
     fwhm2sigma = 1 / (2 * sqrt(2 * log(2)))
-    fw = -1 ./ (2 .* (width .* fwhm2sigma) .^ 2)
-    img = exp.(sq_dists .* reshape(fw, 1, :))
-    return img ./ sum(img; dims=1)
+    fw = @. -1 / (2 * (width * fwhm2sigma)^2)
+
+    xc = (ax .- xcenter')
+    if N == 1
+        xc = (ax .- xcenter')
+        dist = (xc .^ 2) .* reshape(fw, 1, :)
+    elseif N == 2
+        dist = min.(xc, 0) .^ 2 .* reshape(fw[:, 1], 1, :) .+ max.(xc, 0) .^ 2 .* reshape(fw[:, 2], 1, :)
+    else
+        error("get_profile : N must be 1 or 2")
+    end
+
+
+    img = exp.(dist)
+    return img #./ sum(img; dims=1)
 end
 
 
@@ -240,13 +252,18 @@ end
 function extract_model(data::WeightedArray{T,N},
     profile::Profile;
     restrict=0.01,
-    nonnegative=false
+    nonnegative=false,
+    relative=false
 ) where {T,N}
     bbox = profile.bbox
-    if N > 2
-        (; value, precision) = view(data, bbox, :)
+    if relative
+        (; value, precision) = data
     else
-        (; value, precision) = view(data, bbox)
+        if N > 2
+            (; value, precision) = view(data, bbox, :)
+        else
+            (; value, precision) = view(data, bbox)
+        end
     end
     model = profile()
     if restrict > 0
@@ -266,33 +283,78 @@ function extract_model(data::WeightedArray{T,N},
     return WeightedArray(positive .* α, positive .* αprecision)
 end
 
-function fit_profile(data::WeightedArray{T,N},
-    bbox;
-    fwhm0=2.5,
-    fwhmorder=2,
-    fwhm=vcat(fwhm0, zeros(fwhmorder)),
-    cxorder=2,
-    cx=vcat(get_meanx(data, bbox), zeros(cxorder)),
-    optim=OptimParams()) where {T,N}
+using OptimPackNextGen.Powell.Newuoa
 
-    profile = Profile(bbox, fwhm, cx)
+function fit_profile(data::WeightedArray{T,N},
+    profile::Profile{M};
+    relative=false,
+    optim=OptimParams()) where {T,N,M}
+
+    fwhmorder = size(profile.cfwhm, 1)
+    cxorder = length(profile.cx)
+    if M == 1
+        scale = vcat(10. .^ (-(1:(fwhmorder))), 10. .^ (-(1:(cxorder))))
+    else
+        scale = vcat(10. .^ (-(1:(fwhmorder))), 10. .^ (-(1:(cxorder))), 10. .^ (-(1:(cxorder))))
+    end
 
     @unpack_OptimParams optim
     vec, re = Optimisers.destructure(profile)
-    grad = similar(vec)
 
-    f(x) = likelihood(ScaledL2Loss(dims=1, nonnegative=true), view(data, profile.bbox), re(x)())
-
-    prep = prepare_gradient(f, ADbackend, vec)
-    fg!(x, grad) = DifferentiationInterface.value_and_gradient!(f, grad, prep, ADbackend, x)[1]
-    vmlmb!(fg!, vec; verb=verb, maxeval=maxeval, ftol=ftol, xtol=xtol, gtol=gtol, lower=lower, upper=upper)
-
+    d = relative ? data : view(data, profile.bbox)
+    f = build_loss(d, re)
+    #f(x) = likelihood(ScaledL2Loss(dims=1, nonnegative=true), d, re(x)())
+    #prep = prepare_gradient(f, ADbackend, vec)
+    #fg!(x, grad) = DifferentiationInterface.value_and_gradient!(f, grad, prep, ADbackend, x)[1]
+    #vmlmb!(fg!, vec; verb=verb, maxeval=maxeval, ftol=ftol, xtol=xtol, gtol=gtol, lower=lower, upper=upper)
+    #    Newuoa.optimize!(f, vec, 1, 1e-3; scale=[1e-1, 1e-2, 1e-3, 1., 1e-2, 1e-2] .* ones(length(vec)), check=false, maxeval=10_000, verbose=0)
+    Newuoa.optimize!(f, vec, 1, 1e-9; scale=scale, check=false, maxeval=10_000, verbose=0)
+    #    @show f(vec)
     return re(vec)
 end
 
-function get_meanx(data::WeightedArray{T,N}, bbox) where {T,N}
-    (; value, precision) = view(data, bbox)
+build_loss(data, re) = x -> likelihood(ScaledL2Loss(dims=1, nonnegative=true), data, re(x)())
+
+function get_meanx(data::WeightedArray{T,N}, bbox; relative=false) where {T,N}
+    if relative
+        (; value, precision) = data
+    else
+        (; value, precision) = view(data, bbox)
+    end
     ax, ay = axes(bbox)
 
-    return mean(reshape(sum(value .* sqrt.(precision) .* ax, dims=1) ./ sum(sqrt.(precision) .* value, dims=1), :))
+    return sum(value .* sqrt.(precision) .* ax) ./ sum(sqrt.(precision) .* value)
+end
+
+function refine_lamp_model(lamp, profiles, assigned_lenslets::AbstractVector{Bool}; loop=2, width=2)
+    NLENS = length(profiles)
+    lamp_profile = [WeightedArray(zeros(Float64, 40), zeros(Float64, 40)) for _ in 1:NLENS]
+    model = zeros(Float64, size(lamp))
+    tmodel = []
+    progress = Progress(NLENS .* loop; showspeed=true)
+    for _ ∈ 1:loop
+        res = WeightedArray(lamp.value .- model, lamp.precision)
+        fill!(model, 0.)
+        for i ∈ findall(assigned_lenslets)
+            resi = WeightedArray(view(res, profiles[i].bbox).value .+ profiles[i]() .* reshape(lamp_profile[i].value, 1, :), view(res, profiles[i].bbox).precision)
+            profiles[i] = fit_profile(resi, profiles[i]; relative=true)
+            if any(isnan.(profiles[i].cfwhm))
+                assigned_lenslets[i] = false
+                continue
+            end
+            lamp_profile[i] = extract_model(resi, profiles[i]; relative=true)
+            if any(isnan.(lamp_profile[i]))
+                assigned_lenslets[i] = false
+                continue
+            end
+            (; xmin, xmax, ymin, ymax) = profiles[i].bbox
+            lbox = BoundingBox(xmin=xmin - width, xmax=xmax + width, ymin=ymin, ymax=ymax)
+            p = profiles[i](lbox)
+            view(model, lbox) .+= p .* reshape(lamp_profile[i].value, 1, :)
+            next!(progress)
+        end
+        push!(tmodel, copy(model))
+    end
+    ProgressMeter.finish!(progress)
+    return (; tmodel, lamp_profile, profiles)
 end

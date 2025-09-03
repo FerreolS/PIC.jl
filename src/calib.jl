@@ -1,4 +1,4 @@
-using Parameters
+using Parameters, ZippedArrays
 
 @with_kw struct BboxParams
     BBOX_DX_LOWER::Int = 2
@@ -29,8 +29,8 @@ end
     @assert (nλ == 3 || nλ == 4)
     NLENS::Int = 18908
     @assert NLENS ≥ 1
-    lasers_order::Int = 2
-    @assert lasers_order ≥ 1
+    spectral_order::Int = 2
+    @assert spectral_order ≥ 1
     lasers_λs::Vector{R} = [987.72e-9, 1123.71e-9, 1309.37e-9, 1545.10e-9][1:nλ]
     LASERS_CXY0S_INIT_PATH::String = joinpath(dirname(pathof(PIC)), "lasers_cxy0s_init.txt")
     lasers_cxy0s_init::Matrix{R} = readdlm(LASERS_CXY0S_INIT_PATH, Float64)
@@ -43,13 +43,16 @@ end
 
     lasers_fwhms_init::Vector{R} = [2.3, 2.4, 2.7, 2.9][1:nλ]
     @assert length(lasers_fwhms_init) == nλ
-    lamp_order::Int = 2
+    profile_order::Int = 2
+
 
     λLAMP_RANGE::Q = LinRange(850e-9, 1600e-9, 10000) # coarse wavelength range of the instrument
 
-    lamp_cfwhms_init::Vector{R} = [2.5, 0, 0, 0][1:(lamp_order+1)]
+    lamp_cfwhms_init::VecOrMat{R} = vcat(2.5, zeros(profile_order))
 
     bbox_params::BboxParams = BboxParams()
+    reference_pixel = bbox_params.BBOX_HEIGHT / 2
+
 
     laserOptim::OptimParams = OptimParams()
     lampOptim::OptimParams = OptimParams()
@@ -124,7 +127,7 @@ function fitSpectralLawAndProfile(
                 LASERS_CY2_INIT * (λref * 1e6)^2]
 
             lasers_lkl = Lasers_LKL(
-                nλ, lasers_order, lasers_λs, λref, bboxes[i], lens_lasers)
+                nλ, spectral_order, lasers_λs, λref, bboxes[i], lens_lasers)
 
             (fit_lasers_cxs, fit_lasers_cys, fit_fwhms, fit_amplitudes, model, cost) = fit_lens_lasers(lasers_lkl,
                 lasers_fwhms_init, lasers_cxs_init, lasers_cys_init; optim=laserOptim)
@@ -139,7 +142,7 @@ function fitSpectralLawAndProfile(
 
 
             compute_lasers_λmap!(
-                λLAMP_RANGE, bboxes[i], lasers_order, λref, fit_lasers_cxs, fit_lasers_cys,
+                λLAMP_RANGE, bboxes[i], spectral_order, λref, fit_lasers_cxs, fit_lasers_cys,
                 lens_lasers_pixels_dists, lens_lasers_pixels_λs)
 
             # lamp
@@ -148,7 +151,7 @@ function fitSpectralLawAndProfile(
 
             lamp_cxs_init = [fit_lasers_cxs[1]; 0; 0]
 
-            lamp_lkl = Lamp_LKL(lamp_order, λref, bboxes[i], lens_lamp, lens_lasers_pixels_dists, lens_lasers_pixels_λs)
+            lamp_lkl = Lamp_LKL(profile_order, λref, bboxes[i], lens_lamp, lens_lasers_pixels_dists, lens_lasers_pixels_λs)
 
             (fit_lamp_cfwhms, fit_lamp_cxs, fit_lamp_back, fit_lamp_amplitudes, model, cost) = fit_lens_lamp(
                 lamp_lkl, lamp_cfwhms_init, lamp_cxs_init)
@@ -176,7 +179,7 @@ function fitSpectralLawAndProfile(
     end
     ProgressMeter.finish!(p)
 
-    (; lenslet_array, nλ, lasers_λs, λref, lasers_order, lamp_order, assigned_lenslets, bboxes,
+    (; lenslet_array, nλ, lasers_λs, λref, spectral_order, profile_order, assigned_lenslets, bboxes,
         lasers_amplitudes,
         lasers_pixels_dists, lamp_backs, lamp_amplitudes,
         lasers_cost, lamp_cost, lasers_model, lamp_model)
@@ -202,11 +205,11 @@ function calib(
     lasers::WeightedArray,
     lamp::WeightedArray,
     ; calib_params::PICParams=PICParams(),
-    valid_lenslets::AbstractVector{Bool}=trues(NLENS)
+    valid_lenslets::AbstractVector{Bool}=trues(18908)
 )
 
-    #   @unpack_PICParams calib_params
-    #   @unpack_BboxParams bbox_params
+    @unpack_PICParams calib_params
+    @unpack_BboxParams bbox_params
 
     size(valid_lenslets) == (NLENS,) || throw(ArgumentError("valid_lenslets must be of size NLENS"))
 
@@ -215,16 +218,15 @@ function calib(
     bboxes = fill(BoundingBox{Int}(nothing), NLENS)
     profile = Vector{Profile}(undef, NLENS)
 
-    p = Progress(NLENS; showspeed=true)
 
     assigned_lenslets = falses(NLENS)
 
     @inbounds for i in findall(valid_lenslets)
-
         bbox = get_bbox(lasers_cxy0s_init[i, 1], lasers_cxy0s_init[i, 2]; bbox_params=bbox_params)
         if !ismissing(bbox)
             bboxes[i] = bbox
             assigned_lenslets[i] = true
+            profile[i] = Profile(bbox, lamp_cfwhms_init, vcat(PIC.get_meanx(lamp, bbox), zeros(profile_order)))
         end
     end
 
@@ -232,34 +234,41 @@ function calib(
     lamp_profile = Vector{profile_type}(undef, NLENS)
     laser_profile = Vector{profile_type}(undef, NLENS)
     laser_model = LaserModel([7.0, 20.0, 35.0], [2.0, 2.0, 2.0])
+    coefs = Vector{Vector{Float64}}(undef, NLENS)
+    λ = Vector{Vector{Float64}}(undef, NLENS)
+
+    p = Progress(sum(assigned_lenslets); showspeed=true)
 
     #Threads.@threads for i in findall(assigned_lenslets)
     # from https://discourse.julialang.org/t/optionally-multi-threaded-for-loop/81902/8?u=skleinbo
     _foreach = multi_thread ? OhMyThreads.tforeach : Base.foreach
     _foreach(findall(assigned_lenslets)) do i
-        try
-
-            profile[i] = fit_profile(lamp, bboxes[i])
-            laser_profile[i] = extract_model(lasers, profile[i])
-            lamp_profile[i] = extract_model(lamp, profile[i])
-
-
-            las = fit_laser(view(laser, bboxes[i]), laser_model)
-            W = get_laser_precision(las, view(laser, bboxes[i]))
-            coefs = spectral_calibration(order, ref, lasers_λs, las.position, W)
-            λ = get_wavelength(coefs, ref, 1:40)
-
-
-        catch e
-            @debug "Error on lenslet $i" exception = (e, catch_backtrace())
+        if sum(view(lamp, bboxes[i]).precision) == 0
             assigned_lenslets[i] = false
+        else
+            try
+
+                profile[i] = fit_profile(lamp, profile[i])
+                if any(isnan.(profile[i].cfwhm))
+
+                    throw("NaN found in profile for lenslet $i")
+                end
+                laser_profile[i] = extract_model(lasers, profile[i])
+                lamp_profile[i] = extract_model(lamp, profile[i])
+
+                las = fit_laser(laser_profile[i], laser_model)
+                W = get_laser_precision(las, laser_profile[i])
+                coefs[i] = spectral_calibration(spectral_order, reference_pixel, lasers_λs, las.position, W)
+                λ[i] = get_wavelength(coefs[i], reference_pixel, 1:BBOX_HEIGHT)
+
+
+            catch e
+                @debug "Error on lenslet $i" exception = (e, catch_backtrace())
+                assigned_lenslets[i] = false
+            end
         end
         next!(p)
     end
     ProgressMeter.finish!(p)
-
-    (; lenslet_array, nλ, lasers_λs, λref, lasers_order, lamp_order, assigned_lenslets, bboxes,
-        lasers_amplitudes,
-        lasers_pixels_dists, lamp_backs, lamp_amplitudes,
-        lasers_cost, lamp_cost, lasers_model, lamp_model)
+    return (; profile, laser_profile, lamp_profile, coefs, λ, assigned_lenslets, bboxes)
 end
