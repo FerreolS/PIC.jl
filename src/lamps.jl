@@ -333,10 +333,13 @@ function refine_lamp_model(lamp, profiles, assigned_lenslets::AbstractVector{Boo
     tmodel = []
     progress = Progress(NLENS .* loop; showspeed=true)
     for _ ∈ 1:loop
+        #res = lamp .- model
         res = WeightedArray(lamp.value .- model, lamp.precision)
-        fill!(model, 0.)
+        model = zeros(Float64, size(lamp))
         for i ∈ findall(assigned_lenslets)
             resi = WeightedArray(view(res, profiles[i].bbox).value .+ profiles[i]() .* reshape(lamp_profile[i].value, 1, :), view(res, profiles[i].bbox).precision)
+            # resi = view(res,profiles[i].bbox) .+ profiles[i]() .* reshape(lamp_profile[i].value, 1, :)
+
             profiles[i] = fit_profile(resi, profiles[i]; relative=true)
             if any(isnan.(profiles[i].cfwhm))
                 assigned_lenslets[i] = false
@@ -357,4 +360,410 @@ function refine_lamp_model(lamp, profiles, assigned_lenslets::AbstractVector{Boo
     end
     ProgressMeter.finish!(progress)
     return (; tmodel, lamp_profile, profiles)
+end
+using InterpolationKernels, SparseArrays
+
+function build_sparse_interpolation_matrix(knots, samples; kernel::Kernel{T,N}=CatmullRomSpline()) where {T,N}
+    lk = length(kernel)
+    lin = length(samples)
+    col = length(knots)
+
+    nelement = lk * lin
+    L = zeros(Int, nelement)
+    C = zeros(Int, nelement)
+    V = zeros(T, nelement)
+    c = 1
+
+    for (l, sample) ∈ enumerate(samples)
+        offweights = InterpolationKernels.compute_offset_and_weights(kernel, T.(find_index(knots, sample)))
+        weights = vcat(offweights[2]...)
+        off::Int = round(Int, offweights[1]) + 1
+        L[c:(c+lk-1)] .= l
+        C[c:(c+lk-1)] .= min.(max.(off:(off+lk-1), 1), col)
+        V[c:(c+lk-1)] .= weights
+        c += lk
+    end
+    return sparse(L, C, V, lin, col)
+end
+
+
+
+function find_index(knots::AbstractRange, sample)
+    return (sample - first(knots)) / step(knots) + 1
+end
+
+function build_λrange(λs::AbstractMatrix{<:Real}; superres=1)
+    nb_el = round(Int, size(λs, 1) * superres)
+    blue = λs[1, :]
+    red = λs[end, :]
+    return range(start=minimum(blue), stop=maximum(red), step=median((red .- blue)) ./ nb_el)
+end
+
+function build_λrange(λs::Vector{Vector{Float64}}, assigned_lenslets; superres=1)
+    idx = findall(assigned_lenslets)
+    nb_el = round(Int, maximum(length.(λs[idx])) * superres)
+    blue = minimum.(λs[idx])
+    red = maximum.(λs[idx])
+    return range(start=minimum(blue), stop=maximum(red), step=median((red .- blue)) ./ nb_el)
+end
+
+
+
+function get_lower_uppersamples(λ::AbstractVector)
+    lower = [(3 * λ[1] .- λ[2]) / 2; (λ[1:end-1] .+ λ[2:end]) / 2]
+    upper = [(λ[2:end] .+ λ[1:end-1]) / 2; (3 * λ[end] .- λ[end-1]) / 2]
+    return lower, upper
+end
+
+
+function reverse_cumsum(v)
+    out = similar(v)
+    out[end] = v[end]
+    @inbounds for i ∈ (length(v)-1):-1:1
+        out[i] = out[i+1] + v[i]
+    end
+    return out
+end
+
+function build_sparse_interpolation_integration_matrix(knots, lowersample, uppersamples; kernel::Kernel{T,N}=CatmullRomSpline()) where {T,N}
+
+    lk = length(kernel)
+    lin = length(uppersamples)
+    lin == length(lowersample) || throw(DimensionMismatch("uppersamples and lowersample must have the same length"))
+    col = length(knots)
+
+    nelement = col * lin
+    L = zeros(Int, nelement)
+    C = zeros(Int, nelement)
+    V = zeros(T, nelement)
+    c = 1
+
+    for (l, (lsample, usample)) ∈ enumerate(zip(lowersample, uppersamples))
+        uoffweights = InterpolationKernels.compute_offset_and_weights(kernel, T.(find_index(knots, usample)))
+        loffweights = InterpolationKernels.compute_offset_and_weights(kernel, T.(find_index(knots, lsample)))
+        uweights = vcat(uoffweights[2]...)[2:end]
+        uoff::Int = round(Int, uoffweights[1]) + 1
+
+        lweights = vcat(loffweights[2]...)[2:end]
+        loff::Int = round(Int, loffweights[1]) + 1
+
+        lv = uoff - loff + lk - 1
+        v = ones(T, lv)
+        v[(lv-lk+2):end] .= reverse_cumsum(uweights)
+        v[1:lk-1] .-= reverse_cumsum(lweights)
+        off = min.(max.(loff+1:(loff+lv), 1), col)
+        L[c:(c+lv-1)] .= l
+        C[c:(c+lv-1)] .= off
+        V[c:(c+lv-1)] .= v
+        c += lv
+    end
+    return sparse(L[1:c-1], C[1:c-1], V[1:c-1], lin, col)
+end
+
+
+function buildAandB(knots, sampling, spectra, assigned_lenslets, α::T) where {T}
+    nλ = length(knots)
+    MI = Vector{SparseMatrixCSC{Float64,Int}}(undef, sum(assigned_lenslets))
+    A = Matrix{Float64}(I, length(knots), length(knots))
+    # b = Vector{Float64}(undef, length(knots))
+    #A = zeros(Float64, nλ, nλ)
+    b = zeros(Float64, nλ)
+
+    for (i, idx) ∈ enumerate(findall(assigned_lenslets))
+        MI[i] = build_sparse_interpolation_integration_matrix(knots, get_lower_uppersamples(sampling[idx])...)
+        #   MI[i] = build_sparse_interpolation_matrix(knots, sampling[idx])
+        if T <: Number
+            (; value, precision) = ((1 ./ α) * spectra[idx])
+        else
+            (; value, precision) = ((1 ./ α[idx]) * spectra[idx])
+        end
+
+        b .+= Array(MI[i]' * (precision .* value))
+        A .+= Array(MI[i]' * (precision .* MI[i]))
+    end
+    return MI, A, b
+end
+
+function spectral_refinement(coefs, data, spectrum_template, template_wavelength, reference_pixel)
+    function loss(x)
+        wvlngth = get_wavelength(x, reference_pixel, axes(data, 1))
+        model = lamp_model(wvlngth, spectrum_template, template_wavelength)
+        return likelihood(ScaledL2Loss(), data, model)
+    end
+    scale = 1e-6 .* vcat(10. .^ (-(1:length(coefs))))
+    scale = 5.e-8 .* ones(length(coefs))
+
+    coefs = copy(coefs)
+    @show loss(coefs)
+    Newuoa.optimize!(loss, coefs, 1, 1e-9; scale=scale, check=false, maxeval=10_000, verbose=1)
+    @show loss(coefs)
+    return coefs
+end
+
+function lamp_model(λ, spectrum_template, template_wavelength)
+    lo, up = get_lower_uppersamples(λ)
+    model = build_sparse_interpolation_integration_matrix(template_wavelength, lo, up) * spectrum_template
+    return model
+end
+
+
+
+function laser_model(λ, fwhm_pixels, lasers_λs, data)
+    idx = max.(2, [searchsortedlast(λ, l) for l ∈ lasers_λs])
+    las = LaserModel(lasers_λs, fwhm_pixels .* (λ[idx] .- λ[idx.-1]))
+    images = hcat(compute_laser_images(las, λ), ones(length(λ)))
+    amplitude = compute_lasers_amplitudes(Val(length(lasers_λs) + 1), images, data)
+    return images * amplitude
+end
+
+function spectral_refinement(coefs, lamp, lamp_template, wavelength, reference_pixel, lasers_λs, fwhm_pixels, laser)
+    function loss(x)
+        wvlngth = get_wavelength(x, reference_pixel, axes(lamp, 1))
+        lamp_spectrum = lamp_model(wvlngth, lamp_template, wavelength)
+        laser_spectrum = laser_model(wvlngth, fwhm_pixels, lasers_λs, laser)
+        return likelihood(ScaledL2Loss(), lamp, lamp_spectrum) + likelihood(laser, laser_spectrum)
+    end
+    #scale = 1e-7 .* vcat(10. .^ (-(1:length(coefs))))
+    scale = 1.e-8 .* ones(length(coefs))
+    #coefs = copy(coefs)
+    #   @show loss(coefs)
+    Newuoa.optimize!(loss, coefs, 1, 1e-9; scale=scale, check=false, maxeval=10_000, verbose=0)
+    #   @show loss(coefs)
+    return coefs
+end
+using BandedMatrices
+
+function estimate_template(λ, coefs, reference_pixel, spectra, assigned_lenslets)
+    nλ = length(λ)
+    transmission = zeros(Float64, length(assigned_lenslets))
+    MI = Vector{SparseMatrixCSC{Float64,Int}}(undef, length(assigned_lenslets))
+    A = zeros(Float64, nλ, nλ)
+    diagA = 2 * ones(Float64, nλ)
+    diagA[1] = 1
+    diagA[end] = 1
+    A = Array(BandedMatrix((0 => diagA, 1 => -1 * ones(nλ - 1), -1 => -1 * ones(nλ - 1)), (nλ, nλ)))
+
+    b = zeros(Float64, nλ)
+    foreach(findall(assigned_lenslets)) do idx
+        (; value, precision) = spectra[idx]
+
+        profile_wavelength = get_wavelength(coefs[idx], reference_pixel, 1:length(value))
+        MI[idx] = build_sparse_interpolation_integration_matrix(λ, get_lower_uppersamples(profile_wavelength)...)
+        b .+= Array(MI[idx]' * (precision .* value))
+        A .+= Array(MI[idx]' * (precision .* MI[idx]))
+    end
+
+
+    template = A \ b
+
+    OhMyThreads.tforeach(findall(assigned_lenslets)) do idx
+        (; value, precision) = spectra[idx]
+        m = (MI[idx] * template)
+        transmission[idx] = sum((mp = m .* precision) .* value) / sum(m .* mp)
+    end
+
+    transmission .*= 1 ./ median(transmission[findall(assigned_lenslets)])
+
+    return template, transmission
+end
+
+function recalibrate_wavelengths(λ,
+    coefs,
+    order,
+    lamp_profile,
+    laser_profile,
+    lasers_λs,
+    lasers_model,
+    reference_pixel,
+    assigned_lenslets;
+    loop=2)
+
+    template, transmission = estimate_template(λ, coefs, reference_pixel, lamp_profile, assigned_lenslets)
+
+    new_coefs = similar(coefs)
+
+    p = Progress(sum(assigned_lenslets) * loop; showspeed=true)
+
+    for _ ∈ 1:loop
+        @localize template @localize coefs OhMyThreads.tforeach(findall(assigned_lenslets)) do i
+            if (order + 1) > length(coefs[i])
+                coef = vcat(coefs[i], zeros(order - length(coefs[i]) + 1))
+            else
+                coef = copy(coefs[i])
+            end
+            try
+                new_coefs[i] = spectral_refinement(coef, lamp_profile[i], template, λ, reference_pixel, lasers_λs, lasers_model[i].fwhm, laser_profile[i])
+            catch e
+                @warn "Spectral refinement failed for lenslet $i: $e"
+                assigned_lenslets[i] = false
+            end
+            next!(p)
+        end
+        coefs = copy(new_coefs)
+
+        template, transmission = estimate_template(λ, coefs, reference_pixel, lamp_profile, assigned_lenslets)
+
+    end
+    ProgressMeter.finish!(p)
+    return coefs, template, transmission
+end
+
+function calibrate_profile(lamp,
+    ; calib_params::PICParams=PICParams(),
+    valid_lenslets::AbstractVector{Bool}=trues(calib_params.NLENS),
+    loop=0,
+    width=2
+)
+
+
+    @unpack_PICParams calib_params
+    @unpack_BboxParams bbox_params
+
+    size(valid_lenslets) == (NLENS,) || throw(ArgumentError("valid_lenslets must be of size NLENS"))
+
+
+    bboxes = fill(BoundingBox{Int}(nothing), NLENS)
+    profiles = Vector{Profile}(undef, NLENS)
+
+    assigned_lenslets = falses(NLENS)
+
+    @inbounds for i in findall(valid_lenslets)
+        bbox = get_bbox(lasers_cxy0s_init[i, 1], lasers_cxy0s_init[i, 2]; bbox_params=bbox_params)
+        if !ismissing(bbox)
+            bboxes[i] = bbox
+            assigned_lenslets[i] = true
+            profiles[i] = Profile(bbox, lamp_cfwhms_init, vcat(PIC.get_meanx(lamp, bbox), zeros(profile_order)))
+        end
+    end
+
+    profile_type = ZippedVector{WeightedValue{Float64},2,true,Tuple{Vector{Float64},Vector{Float64}}}
+    lamp_profile = Vector{profile_type}(undef, NLENS)
+
+    progress = Progress(sum(assigned_lenslets); showspeed=true)
+    #Threads.@threads for i in findall(assigned_lenslets)
+    # from https://discourse.julialang.org/t/optionally-multi-threaded-for-loop/81902/8?u=skleinbo
+    _foreach = multi_thread ? OhMyThreads.tforeach : Base.foreach
+    @allow_boxed_captures _foreach(findall(assigned_lenslets)) do i
+        if sum(view(lamp, bboxes[i]).precision) == 0
+            assigned_lenslets[i] = false
+        else
+            try
+
+                profiles[i] = fit_profile(lamp, profiles[i])
+                if any(isnan.(profiles[i].cfwhm))
+
+                    throw("NaN found in profile for lenslet $i")
+                end
+                lamp_profile[i] = extract_model(lamp, profiles[i])
+
+            catch e
+                @debug "Error on lenslet $i" exception = (e, catch_backtrace())
+                assigned_lenslets[i] = false
+            end
+        end
+        next!(progress)
+    end
+    ProgressMeter.finish!(progress)
+
+    model = zeros(Float64, size(lamp))
+
+    progress = Progress(sum(assigned_lenslets) .* loop; showspeed=true)
+
+    for _ ∈ 1:loop
+        res = lamp .- model
+        model = zeros(Float64, size(lamp))
+        for i ∈ findall(assigned_lenslets)
+            resi = WeightedArray(view(res, profiles[i].bbox).value .+ profiles[i]() .* reshape(lamp_profile[i].value, 1, :), view(res, profiles[i].bbox).precision)
+            # resi = view(res,profiles[i].bbox) .+ profiles[i]() .* reshape(lamp_profile[i].value, 1, :)
+
+            profiles[i] = fit_profile(resi, profiles[i]; relative=true)
+            if any(isnan.(profiles[i].cfwhm))
+                assigned_lenslets[i] = false
+                continue
+            end
+            lamp_profile[i] = extract_model(resi, profiles[i]; relative=true)
+            if any(isnan.(lamp_profile[i]))
+                assigned_lenslets[i] = false
+                continue
+            end
+            (; xmin, xmax, ymin, ymax) = profiles[i].bbox
+            lbox = BoundingBox(xmin=xmin - width, xmax=xmax + width, ymin=ymin, ymax=ymax)
+            p = profiles[i](lbox)
+            view(model, lbox) .+= p .* reshape(lamp_profile[i].value, 1, :)
+            next!(progress)
+        end
+    end
+    ProgressMeter.finish!(progress)
+
+    return profiles, bboxes, assigned_lenslets, lamp_profile, model
+end
+
+function spectral_calibration(
+    lasers,
+    lamp_profiles,
+    profiles;
+    assigned_lenslets=trues(length(profiles)),
+    calib_params::PICParams=PICParams(),
+    loop=2,
+    superres=1,
+    final_spectral_order=3
+)
+
+    @unpack_PICParams calib_params
+    @unpack_BboxParams bbox_params
+
+    profile_type = ZippedVector{WeightedValue{Float64},2,true,Tuple{Vector{Float64},Vector{Float64}}}
+    laser_profile = Vector{profile_type}(undef, NLENS)
+    laser_model = LaserModel([7.0, 20.0, 35.0], [2.0, 2.0, 2.0])
+    coefs = Vector{Vector{Float64}}(undef, NLENS)
+    λ = Vector{Vector{Float64}}(undef, NLENS)
+    las = Vector{typeof(laser_model)}(undef, NLENS)
+
+    #Threads.@threads for i in findall(assigned_lenslets)
+    # from https://discourse.julialang.org/t/optionally-multi-threaded-for-loop/81902/8?u=skleinbo
+    _foreach = multi_thread ? (@localize coefs OhMyThreads.tforeach) : Base.foreach
+    progress = Progress(sum(assigned_lenslets); showspeed=true)
+    @localize coefs _foreach(findall(assigned_lenslets)) do i
+        if sum(view(lasers, profiles[i].bbox).precision) == 0
+            assigned_lenslets[i] = false
+        else
+            try
+                laser_profile[i] = extract_model(lasers, profiles[i])
+                las[i] = fit_laser(laser_profile[i], laser_model)
+
+                if std(las[i].position .- laser_model.position) > 1
+                    throw("Laser position too far from initial guess for lenslet $i")
+                end
+                W = get_laser_precision(las[i], laser_profile[i])
+                if any(diag(W) .< 1e-4)
+                    throw("W singular  for lenslet $i")
+                end
+                coefs[i] = spectral_calibration(spectral_order, reference_pixel, lasers_λs, las[i].position, W)
+                if any(isnan.(coefs[i]))
+                    throw("NaN found in coefs for lenslet $i")
+                end
+                λ[i] = get_wavelength(coefs[i], reference_pixel, axes(laser_profile[i], 1))
+
+            catch e
+                @debug "Error on lenslet $i" exception = e
+                assigned_lenslets[i] = false
+            end
+        end
+        next!(progress)
+    end
+    finish!(progress)
+    lλ = build_λrange(λ, assigned_lenslets; superres=superres)
+
+    coefs, template, transmission = recalibrate_wavelengths(
+        lλ,
+        coefs,
+        final_spectral_order,
+        lamp_profiles,
+        laser_profile,
+        lasers_λs,
+        las,
+        reference_pixel,
+        assigned_lenslets;
+        loop=loop)
+    return coefs, template, transmission, lλ, las, laser_profile, assigned_lenslets
 end

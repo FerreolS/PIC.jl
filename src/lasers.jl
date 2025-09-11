@@ -343,16 +343,19 @@ function ((; ycenter, coefs)::SpectralLaw)(j)
 end
 
 struct LaserModel
+    #   wavelength::Vector{Float64}
     position::Vector{Float64}
     fwhm::Vector{Float64}
 end
+#trainable(x::LaserModel) = (; position=x.position, fwhm=x.fwhm)
+
 LaserModel(position::AbstractVector, fwhm::AbstractVector) =
     LaserModel(collect(position), collect(fwhm))
 
 function compute_laser_images((; position, fwhm)::LaserModel, idx::AbstractVector)
     fwhm2sigma = 1 / (2 * sqrt(2 * log(2)))
-    fw = -1 ./ (2 .* (fwhm .* fwhm2sigma) .^ 2)
-    return exp.(-((idx .- reshape(position, 1, :)) ./ reshape(fwhm, 1, :)) .^ 2)
+    fw = 2 .* (fwhm .* fwhm2sigma)
+    return exp.(-((idx .- reshape(position, 1, :)) ./ reshape(fw, 1, :)) .^ 2)
 end
 
 function compute_lasers_amplitudes(::Val{N},

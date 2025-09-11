@@ -236,6 +236,8 @@ function calib(
     laser_model = LaserModel([7.0, 20.0, 35.0], [2.0, 2.0, 2.0])
     coefs = Vector{Vector{Float64}}(undef, NLENS)
     λ = Vector{Vector{Float64}}(undef, NLENS)
+    las = Vector{typeof(laser_model)}(undef, NLENS)
+
 
     p = Progress(sum(assigned_lenslets); showspeed=true)
 
@@ -256,9 +258,18 @@ function calib(
                 laser_profile[i] = extract_model(lasers, profile[i])
                 lamp_profile[i] = extract_model(lamp, profile[i])
 
-                las = fit_laser(laser_profile[i], laser_model)
-                W = get_laser_precision(las, laser_profile[i])
-                coefs[i] = spectral_calibration(spectral_order, reference_pixel, lasers_λs, las.position, W)
+                las[i] = fit_laser(laser_profile[i], laser_model)
+                if std(las[i].position .- laser_model.position) > 1
+                    throw("Laser position too far from initial guess for lenslet $i")
+                end
+                W = get_laser_precision(las[i], laser_profile[i])
+                if any(diag(W) .< 1e-4)
+                    throw("W singular  for lenslet $i")
+                end
+                coefs[i] = spectral_calibration(spectral_order, reference_pixel, lasers_λs, las[i].position, W)
+                if any(isnan.(coefs[i]))
+                    throw("NaN found in coefs for lenslet $i")
+                end
                 λ[i] = get_wavelength(coefs[i], reference_pixel, 1:BBOX_HEIGHT)
 
 
@@ -270,5 +281,5 @@ function calib(
         next!(p)
     end
     ProgressMeter.finish!(p)
-    return (; profile, laser_profile, lamp_profile, coefs, λ, assigned_lenslets, bboxes)
+    return (; profile, laser_profile, lamp_profile, coefs, λ, assigned_lenslets, bboxes, las)
 end
