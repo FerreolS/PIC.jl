@@ -1,28 +1,32 @@
 function exporte(filepath::String, A::NamedTuple) ::Nothing
     
-    (; nλ, lasers_λs, λref, lasers_order, lamp_order, assigned_lenslets, lasers_cxs, lasers_cys,
-      lasers_fwhms, lasers_amplitudes, lasers_pixels_dists, lasers_pixels_λs,
-      lamp_backs, lamp_amplitudes, bboxes, lamp_cfwhms, lamp_cxs) = A
-    
+    (; lenslet_array, nλ, lasers_λs, λref, lasers_order, lamp_order, assigned_lenslets, bboxes,
+        lasers_amplitudes,
+        lasers_pixels_dists, lamp_backs, lamp_amplitudes,
+        lasers_cost, lamp_cost, lasers_model, lamp_model) = A
+
+    NLENS = length(assigned_lenslets)
+    (BBOX_WIDTH, BBOX_HEIGHT) = size(bboxes[1])
+
     FitsFile(filepath, "w!") do fits
-    
-        write(fits, FitsHeader("COMMENT" => "DATA is in a Table HDU"), [0;;])
-    
+
+        write(fits,
+            FitsHeader(
+                "EXTNAME" => "PIC_FIT_IMG",
+                "COMMENT" => "see also HDU 'PIC_FIT_TABLE'"),
+            [ lasers_model ;;; lamp_model ])
+
         hdu = FitsTableHDU(fits,
             "ASSIGNED" => Bool,
             "BBOXES" => (Int, 4),
-            "LASERS_CXS" => (Float64, lasers_order+1),
-            "LASERS_CYS" => (Float64, lasers_order+1),
-            "LASERS_FWHMS" => (Float64, nλ),
             "LASERS_AMPLITUDES" => (Float64, nλ),
-            "LASERS_PIXELS_DISTS" => (Float64, (BBOX_WIDTH, BBOX_HEIGHT)),
-            "LASERS_PIXELS_LAMBDAS" => (Float64, (BBOX_WIDTH, BBOX_HEIGHT)),
-            "LAMP_CFWHMS" => (Float64, lamp_order+1),
-            "LAMP_CXS" => (Float64, lamp_order+1),
+            "LASERS_PIXELS_DISTS" => (Float64, BBOX_HEIGHT),
             "LAMP_BACKS" => Float64,
-            "LAMP_AMPLITUDES" => (Float64, BBOX_HEIGHT))
-            
-        hdu["EXTNAME"] = "PIC_DATA"
+            "LAMP_AMPLITUDES" => (Float64, BBOX_HEIGHT),
+            "LASERS_COST" => Float64,
+            "LAMP_COST" => Float64)
+
+        hdu["EXTNAME"] = "PIC_FIT_TABLE"
         hdu["PIC_PACKAGE_VERSION"] = string(pkgversion(PIC))
         hdu["NLENS"] = NLENS
         hdu["NLAMBDA"] = nλ
@@ -31,23 +35,66 @@ function exporte(filepath::String, A::NamedTuple) ::Nothing
         end
         hdu["LAMBDAREF"] = λref
         hdu["LASERS_ORDER"] = lasers_order
-        hdu["PROFILE_ORDER"] = lamp_order
-        
+        hdu["LAMP_ORDER"] = lamp_order
+
         write(hdu, "ASSIGNED" => Vector{Bool}(assigned_lenslets))
-        write(hdu, "BBOXES" => [ bboxes[i][c] for c in 1:4, i in 1:NLENS ])
-        write(hdu, "LASERS_CXS" => lasers_cxs)
-        write(hdu, "LASERS_CYS" => lasers_cys)
-        write(hdu, "LASERS_FWHMS" => lasers_fwhms)
+        bboxes_column = Array{Int,2}(undef, 4, NLENS)
+        for i in 1:NLENS
+            bboxes_column[:,i] .= (bboxes[i][1].x, bboxes[i][1].y, bboxes[i][2].x, bboxes[i][2].y)
+        end
+        write(hdu, "BBOXES" => bboxes_column)
         write(hdu, "LASERS_AMPLITUDES" => lasers_amplitudes)
-        write(hdu, "LASERS_PIXELS_DISTS" => lasers_pixels_dists)
-        write(hdu, "LASERS_PIXELS_LAMBDAS" => lasers_pixels_λs)
-        write(hdu, "LAMP_CFWHMS" => lamp_cfwhms),
-        write(hdu, "LAMP_CXS" => lamp_cxs),
+        lasers_pixels_dists_column = fill(NaN64, BBOX_HEIGHT, NLENS)
+        for i in 1:NLENS
+            if isassigned(lasers_pixels_dists, i)
+                lasers_pixels_dists_column[:,i] .= lasers_pixels_dists[i]
+            end
+        end
+        write(hdu, "LASERS_PIXELS_DISTS" => lasers_pixels_dists_column)
         write(hdu, "LAMP_BACKS" => lamp_backs)
         write(hdu, "LAMP_AMPLITUDES" => lamp_amplitudes)
+        write(hdu, "LASERS_COST" => lasers_cost)
+        write(hdu, "LAMP_COST" => lamp_cost)
     end
     
     nothing
+end
+
+function importe(filepath)
+    FitsFile(filepath) do fits
+
+        lasers_model = read(fits["PIC_FIT_IMG"], :,:,1);
+        lamp_model = read(fits["PIC_FIT_IMG"], :,:,2);
+
+        hdu = fits["PIC_FIT_TABLE"]
+
+        NLENS = hdu["NLENS"].integer
+        nλ = hdu["NLAMBDA"].integer
+        lasers_λs = [ hdu["LASER_LAMBDA_$i"].float for i in 1:nλ ]
+        λref = hdu["LAMBDAREF"].float
+        lasers_order = hdu["LASERS_ORDER"].integer
+        lamp_order = hdu["LAMP_ORDER"].integer
+
+        D = read(hdu)
+
+        assigned_lenslets = BitVector(D["ASSIGNED"])
+        bboxes = [
+            BoundingBox{Int}(
+                (D["BBOXES"][1,i], D["BBOXES"][2,i]),
+                (D["BBOXES"][3,i], D["BBOXES"][4,i]))
+            for i in 1:NLENS ]
+        lasers_amplitudes = D["LASERS_AMPLITUDES"]
+        lasers_pixels_dists = [ D["LASERS_PIXELS_DISTS"][:,i] for i in 1:NLENS ]
+        lamp_backs = D["LAMP_BACKS"]
+        lamp_amplitudes = D["LAMP_AMPLITUDES"]
+        lasers_cost = D["LASERS_COST"]
+        lamp_cost = D["LAMP_COST"]
+
+         (; nλ, lasers_λs, λref, lasers_order, lamp_order, assigned_lenslets, bboxes,
+            lasers_amplitudes,
+            lasers_pixels_dists, lamp_backs, lamp_amplitudes,
+            lasers_cost, lamp_cost, lasers_model, lamp_model)
+    end
 end
 
 function importe(filepath)
@@ -59,7 +106,7 @@ function importe(filepath)
         lasers_λs = [ hdu["LASER_LAMBDA_$i"].float for i in 1:nλ ]
         λref = hdu["LAMBDAREF"].float
         lasers_order = hdu["LASERS_ORDER"].integer
-        lamp_order = hdu["PROFILE_ORDER"].integer
+        lamp_order = hdu["LAMP_ORDER"].integer
 
         D = read(hdu)
 
