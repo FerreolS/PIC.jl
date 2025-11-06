@@ -218,8 +218,8 @@ In the function we compute `A⁻¹` and `b`.
 function compute_lasers_amplitudes(::Val{N},
     lasers_models::Vector{Matrix{T}}, d::WeightedArray
 ) where {T<:Real,N}
-    data = get_data(d)
-    precision = get_precision(d)
+    data = get_value(d)
+    precision = WeightedData.get_precision(d)
     model = [reshape(lasers_models[i], :) for i in 1:N]
     d = view(data, :)
     w = view(precision, :)
@@ -243,8 +243,8 @@ end
 function compute_lasers_amplitudes(::Val{N},
     lasers_models::Array{T,3}, d::WeightedArray
 ) where {T<:Real,N}
-    data = get_data(d)
-    precision = get_precision(d)
+    data = get_value(d)
+    precision = WeightedData.get_precision(d)
     d = view(data, :)
     w = view(precision, :)
 

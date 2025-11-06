@@ -174,8 +174,8 @@ are zeros so we avoid the basic matrix operation.
 function compute_lamp_backs_and_amplitudes(
     lamp_model::AbstractArray{T}, data::WeightedArray
 ) where {T<:Real}
-    weights = get_precision(data)
-    data = get_data(data)
+    weights = WeightedData.get_precision(data)
+    data = get_value(data)
     c = @. lamp_model * weights
     b = @. c * data
     a = @. lamp_model * c
